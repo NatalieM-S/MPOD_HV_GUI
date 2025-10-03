@@ -1,0 +1,3 @@
+[submodule "hv_control"]
+	path = hv_control
+	url = git@github.com:u-eff-gee/hv_control.git
