@@ -2,7 +2,7 @@ import subprocess
 import os
 import warnings
 from datetime import datetime
-# Written by Natalie Mujica-Schwahn, last updated: 9/22/25
+# Written by Natalie Mujica-Schwahn, last updated: 10/4/25
 class MPOD:
     r'''
     Input IP to connect to MPOD
@@ -189,9 +189,11 @@ class MPOD:
             self.Send('set', f"outputVoltage{direction}Rate.u{channel} F {rate}")
     
     def GetVoltageRate(self, channel, direction =  'Rise'):
-        ''' Channel Voltage Get Rise Rate ::: [V/s] ::: float)
+        ''' 
+        Channel Voltage Get Rise Rate ::: [V/s] ::: float)
         directions: 'Rise' and 'Fall' 
-        Note: for most modules, rise & fall rates are tied together'''
+        Note: for most modules, rise & fall rates are tied together
+        '''
         if self.mode: 
             reply = 'WIENER-CRATE-MIB::outputVoltageRiseRate.u604 = Opaque: Float: 0.093592196703 V/s'
         else: 
@@ -200,20 +202,24 @@ class MPOD:
         return result
 
     def SetCurrentRate(self, channel, rate, direction =  'Rise'):
-        ''' Channel Current Set Rise Rate ::: [A/s] ::: float)
+        ''' 
+        Channel Current Set Rise Rate ::: [A/s] ::: float)
         directions: 'Rise' and 'Fall' 
-        Note: for most modules, rise & fall rates are tied together'''
+        Note: for most modules, rise & fall rates are tied together
+        '''
         if self.mode: 
             print(f'IRate would be set to {rate} on ch{channel}')
         else: 
             self.Send('set', f"outputCurrent{direction}Rate.u{channel} F {rate}")
     
     def GetCurrentRate(self, channel, direction =  'Rise'):
-        ''' Channel Current Get Rise Rate ::: [A/s] ::: float)
+        ''' 
+        Channel Current Get Rise Rate ::: [A/s] ::: float)
         directions: 'Rise' and 'Fall' 
         Range: 2% - 100% * CurrentNominal
         TODO: validate range
-        Note: for most modules, rise & fall rates are tied together'''
+        Note: for most modules, rise & fall rates are tied together
+        '''
         if self.mode: 
             reply = 'WIENER-CRATE-MIB::outputCurrentRiseRate.u604 = Opaque: Float: 0.093592196703 A/s'
         else: 
@@ -250,7 +256,8 @@ class MPOD:
     ##### WORKS IN PROGRESS####    
     def GetStatus(self, channel):
         #TODO: Get this up and running - clearly important!! 
-        ''' Notes: Bistrings will be harder to parse than text... likely zero-indexed hex
+        ''' 
+        Notes: Bitstrings will be harder to parse than text... likely hex
         for best examples search BITS:
                 ***SEE MIB FILE****
         Known statuses: 
