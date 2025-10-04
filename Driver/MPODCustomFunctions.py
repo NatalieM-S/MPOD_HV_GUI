@@ -9,6 +9,8 @@ class CustomFx:
         self.max_voltage_ramp = 0.1# [A/s]
         self.MPOD = MPOD #object created from MPOD in MPODclass
         self.all_channels = self.MPOD.GetAllNames()
+        self.n_channels = len(self.all_channels)
+        self.modules, self.channels = self.ChannelsPerModule()
 
     def Test(self):
         self.MPOD.GetTargetVoltage(101)
@@ -36,6 +38,7 @@ class CustomFx:
                 if M == occupied_slots[i]: 
                     tmp.append(channels[idx])
             channel_list.append(tmp)
+            tmp=[]
         return occupied_slots, channel_list
 
     def RampTogether(self, channels = None):

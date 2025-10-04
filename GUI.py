@@ -4,19 +4,31 @@ import pandas as pd
 import time
 import pathlib
 from screeninfo import get_monitors
-from hv_control.hv_control 
+from Driver.MPODClass import MPOD
+from Driver.MPODCustomFunctions import CustomFx
 #import ctypes
 """
 Written by Natalie Mujica-Schwahn
 from GUI import GUI
-G=GUI(n_channels = 5, real_data = False)
+G=GUI(n_channels = 5, take_real_data = True)
 G.start_app()
 """
 class GUI:
-    def __init__(self, n_channels = 5, take_real_data = True):
+    def __init__(self, IP = '169.254.107.70', n_channels = 5, take_real_data = True):
+        #TODO: test autodetect of channels and remove this input
+        #TODO: add check if instrument is connected
+
         self.warnings = ['testwarn']  # List of startup warnings to display on front
-        self.n_channels = n_channels  # How many channels are connected
-        self.take_real_data = False  # True: Instrument data, False: synthesized data
+        self.IP = IP
+        self.MPOD = None #MPOD Class object placeholder
+        self.FX = None #MPOD Functions object placeholder
+        if take_real_data:
+            self.create_data_task()
+            self.n_channels = self.FX.n_channels
+        else: 
+            self.n_channels = n_channels  # How many channels are connected
+        
+        self.take_real_data = take_real_data  # True: Instrument data, False: synthesized data
         # Set to false when not connected to instrument (to test GUI)
 
         # Initialize  vars for later use
@@ -25,7 +37,7 @@ class GUI:
         self.data_series = np.array([])  # Windowed data for plotting
         self.time_series = np.array([])
         self.save_data = np.array([])  # Full data to be saved
-        self.loop_plot = False # (De)activate plot
+        self.loop_plot = True # (De)activate plot
         self.en = []  # Enable plot mask
         self.data_size = 0 # Displayed on GUI
         self.sample_rate = 0 # Displayed on GUI
@@ -44,6 +56,7 @@ class GUI:
         column_names = ['V', 'I']
         self.units_name = ['[V]', '[A]'] # Units that are measured by columns
         self.column_names = ['t']
+        #TODO: Update save column names to capture channel name
         for n in range(self.n_channels):
             for i in range(len(column_names)):
                 self.column_names.append(column_names[i] + str(n))
@@ -212,9 +225,9 @@ class GUI:
         else:  # Sample rate set back to zero
             dpg.set_value('sample_in_seconds', 'Data sampled as fast as possible')
 
-
     def create_data_task(self):
-        print('no data task setup')
+        self.MPOD = MPOD(self.IP)
+        self.FX = CustomFx(self.MPOD)
 
     def close(self):  # Cleanup save and close instrument
         #TODO: close on save & Protections!
@@ -244,6 +257,8 @@ class GUI:
         self.initialized = 1
 
     def button_example(self, sender, data):
+        #TODO: get channel input set up and button formatting
+        self.MPOD.SetPower(101, data)
         print('button pressed')
 
     def checkbox_example(self, sender, data):
@@ -252,13 +267,22 @@ class GUI:
     def input_example(self, sender, data):
         print(f'Input set to {data}')
 
+    def get_plot_data(self):
+        data = []
+        for ch in self.FX.all_channels:
+            data.append(self.MPOD.QueryVoltage(ch))
+            data.append(self.MPOD.QueryCurrent(ch))
+        return data
+
     def update_loop(self):
         currentTime = np.array(time.monotonic() - self.startTime)
         if self.loop_plot:
             # DAQ process
             if self.take_real_data:  # Instrument is connected
-                #check if datatask exists. if N, create, if Y, acquire data
-                instrument_data = []
+                if self.MPOD is None:
+                    self.create_data_task()
+                #TODO: Add check if datatask exists. if N, recreate, if Y, acquire data
+                instrument_data = self.get_plot_data()
                 append_data = np.array(instrument_data)
                 append_data = append_data * self.scale_factor 
                 if len(self.data_series) == 0:
@@ -366,19 +390,33 @@ class GUI:
             dpg.add_button(label = "Refresh plot", tag = "RefreshButton", callback = self.refresh_plot, width = widths[0])
             dpg.add_separator()
             dpg.add_text('Instruments to plot:')
-            N_ch_per_tab = 5
+            
             with dpg.tab_bar(tag = "CheckboxBar"):
-                x=1
-                n_tabs = self.n_channels//N_ch_per_tab + (np.mod(self.n_channels, N_ch_per_tab) > 0)
+                x, y = 1 , 0
+                if self.take_real_data:
+                    n_tabs = len(self.FX.modules)
+                    N_ch_per_tab = []
+                    for ch_list in self.FX.channels:
+                        N_ch_per_tab.append(len(ch_list))
+                else:
+                    N_ch_per_tab = 5
+                    n_tabs = self.n_channels//N_ch_per_tab + (np.mod(self.n_channels, N_ch_per_tab) > 0)
+                    N_ch_per_tab = [N_ch_per_tab]*n_tabs
                 for tab_set in range(n_tabs):
-                    dpg.add_tab(label = f"{(tab_set)*N_ch_per_tab}-{min((tab_set + 1)*N_ch_per_tab - 1,self.n_channels-1)}", tag = f"Set{tab_set}")
+                    if self.take_real_data:
+                        dpg.add_tab(label = f"Module {self.FX.modules[tab_set]}", tag = f"Set{tab_set}")
+                    else:
+                        dpg.add_tab(label = f"{(tab_set)*N_ch_per_tab[0]}-{min((tab_set + 1)*N_ch_per_tab[0] - 1,self.n_channels-1)}", tag = f"Set{tab_set}")
                     # Creates group of checkboxes for all instruments
-                    for N in range(N_ch_per_tab):#repeat N times
+                    for N in range(N_ch_per_tab[tab_set]):#repeat N times
                         with dpg.group(label = f"en_group{tab_set}", horizontal = True, parent = f'Set{tab_set}'):
                             for j in range(self.n_outputs//self.n_channels):
                                 if x < len(self.column_names):
                                     dpg.add_checkbox(label = f'{self.column_names[x]}', tag = f'enable_{self.column_names[x]}', default_value = True, callback = self.checkbox_TF)# example: V0 & enable_V0
                                     x=x+1
+                            dpg.add_text(f'u{self.FX.all_channels[y]}')
+                            y=y+1  
+
 
 
 
@@ -465,7 +503,7 @@ class GUI:
 
 
 
-            dpg.add_button(label = "Blank button", callback = self.button_example, user_data = None, width = widths[0])
+            dpg.add_button(label = "Test button", callback = self.button_example, user_data = None, width = widths[0])
             dpg.add_checkbox(label = 'Check', callback = self.checkbox_example, default_value = False)
             dpg.add_input_int(label = 'Value', default_value = 10, callback = self.input_example, width = widths[0] // 2)
             dpg.add_separator()
