@@ -1,22 +1,52 @@
 #testing advanced functions made for MPODClass
 import time
+import warnings
+import traceback
 ''' most recent manual: https://file.wiener-d.com/documentation/MPOD/WIENER_MPOD_Manual_3.2.pdf
 '''
 
-class CustomFx:
-    def __init__(self, MPOD):
+def my_decorator(func):#testing... 
+    def wrapper(*args, **kwargs):
+        try:
+            result = func(*args, **kwargs)
+        except Exception as inst:
+            traceback.print_exc()
+            print(type(inst))    # the exception type
+            print(inst.args)     # arguments stored in .args
+            print(inst)  
+            warnings.warn(f'{func.__name__} call failed')
+            result = []
+            #TODO: more useful exceptions
+        return result
+    return wrapper
+
+class DecorateAllMethods:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        for attr, value in cls.__dict__.items():
+            if callable(value):
+                setattr(cls, attr, my_decorator(value))
+
+class CustomFx(DecorateAllMethods):
+    def __init__(self, MPOD, take_real_data=True):
         #custom limits & settings here
         self.max_voltage_ramp = 0.1# [A/s]
         self.MPOD = MPOD #object created from MPOD in MPODclass
-        self.all_channels = self.MPOD.GetAllNames()
-        self.n_channels = len(self.all_channels)
-        self.modules, self.channels = self.ChannelsPerModule()
+        if take_real_data:
+            self.all_channels = self.MPOD.GetAllNames()
+            self.n_channels = len(self.all_channels)
+            self.modules, self.channels = self.ChannelsPerModule()
+        else:
+            self.all_channels = [101,102,103,104,105,301,302,303,304]
+            self.n_channels = len(self.all_channels)
+            self.modules, self.channels = [1,3], [[1,2,3,4,5],[1,2,3,4]]
 
     def Test(self):
         self.MPOD.GetTargetVoltage(101)
         self.MPOD.GetCurrentLimit(101)
         self.MPOD.SetTargetVoltage(101, 1)
         self.MPOD.SetCurrentLimit(101, 1)
+        # self.MPOD.intentionalerror
 
     def ChannelsPerModule(self):
         ''' 
@@ -85,26 +115,36 @@ class CustomFx:
                 time.sleep(0.1)
                 print('Target: ', target_V, '\nCurrent: ', current_V)
             
-        def Reset(self, channels = None):
-            if channels is None:
-                channels = self.all_channels
+    def Reset(self, channels = None):
+        if channels is None:
+            channels = self.all_channels
+        for ch in channels:
+            self.MPOD.SetPower(ch, 2)#reset EmergencyOff
+            self.MPOD.SetPower(ch, 10)#clear events in status
+
+    def RampDownAll(self, channels = None):
+        if channels is None:
+            channels = self.all_channels
+        for ch in channels: 
+            self.MPOD.SetTargetVoltage(ch, 0)
+            self.MPOD.SetPower(ch, 1)
+
+    def IncrementAll(self, sender, app_data, user_data):
+        v_to_increment = user_data[0]
+        channels = user_data[1]
+        send_now = user_data[2]
+        if channels is None:
+            channels = self.all_channels
+        for ch in channels: 
+            v_target = self.MPOD.GetTargetVoltage(ch)
+            self.MPOD.SetTargetVoltage(ch, v_target + v_to_increment)
+        if send_now:
             for ch in channels:
-                self.MPOD.SetPower(ch, 2)#reset EmergencyOff
-                self.MPOD.SetPower(ch, 10)#clear events in status
-
-        def RampDownAll(self, channels = None):
-            if channels is None:
-                channels = self.all_channels
-            for ch in channels: 
-                self.MPOD.SetTargetVoltage(ch, 0)
                 self.MPOD.SetPower(ch, 1)
-        
-        def GetAllValues(self, channels = self.all_channels):
-            x = 1
+    
+    # def GetAllValues(self, channels = None):
+    #     x = 1
                 
-
-        
-
         
 
 

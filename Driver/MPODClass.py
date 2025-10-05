@@ -11,10 +11,10 @@ class MPOD:
     Reference 2: https://fsunuc.physics.fsu.edu/wiki/images/1/10/Iseg_SNMP_Programmers_Guide.pdf
     '''
 
-    def __init__(self, IP = '169.254.107.70', MIBdir = "/usr/share/snmp/mibs", mode = 0):
+    def __init__(self, IP = '169.254.107.70', mode = 0, MIBdir = "/usr/share/snmp/mibs"):
         self.IP = IP
         self.mibdir = MIBdir #or os.path.expanduser("~/.snmp/mibs")
-        self.mode = 1 # mode: 0, driver, 1, debug (not connected)
+        self.mode = 1#TODO: = mode # mode: 0, driver, 1, debug (not connected)
 
         os.environ["MIBS"] = "+WIENER-CRATE-MIB"
         if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
