@@ -14,8 +14,8 @@ class MPOD:
     def __init__(self, IP = '169.254.107.70', mode = 0, MIBdir = "/usr/share/snmp/mibs"):
         self.IP = IP
         self.mibdir = MIBdir #or os.path.expanduser("~/.snmp/mibs")
-        self.mode = 1#TODO: = mode # mode: 0, driver, 1, debug (not connected)
-
+        self.mode = 0#mode: 0, driver, 1, debug (not connected), 
+        self.dummy_instrument = [0, 1, 2, 13, 14, 15, 1, 0]#1 ch instrument mimic[i_limit, i_rate, i_actual, v_target, v_rate, v_actual, pwr_crate, pwr_ch]
         os.environ["MIBS"] = "+WIENER-CRATE-MIB"
         if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
             os.environ["MIBDIRS"] = self.mibdir
@@ -74,38 +74,42 @@ class MPOD:
         Channels can be found from Web Browser or GetAllNames(), form will be 600:607,700:707, etc
         '''
         if self.mode: #for testing
-            reply = 'WIENER-CRATE-MIB::outputVoltage.u604 = Opaque: Float: 5.000000000000 V'
+            # reply = f'WIENER-CRATE-MIB::outputVoltage.u604 = Opaque: Float: 5.000000000000 V'
+            # reply = f'WIENER-CRATE-MIB::outputVoltage.u604 = Opaque: Float: {self.dummy_instrument[3]:.12f} V'
+            self.dummy_instrument[3] = voltage
             print(f'VTarget would be set to {voltage} V on Ch{channel}')
         else:
             reply = self.Send('set', f"outputVoltage.u{channel} F {voltage}")
-        result = self.ParseReply(reply, 'float')
+        # result = self.ParseReply(reply, 'float')
         #TODO: see if result is needed/useful or not. Will be neglected for further set cmds for now
-        return result
+        # return result
 
     def GetTargetVoltage(self, channel):
         ''' Channel Voltage Get Target (target set by SetTargetVoltage) ::: [V] ::: float '''
         if self.mode: 
-            reply = 'WIENER-CRATE-MIB::outputVoltage.u604 = Opaque: Float: 5.000000000000 V'
+            reply = f'WIENER-CRATE-MIB::outputVoltage.u604 = Opaque: Float: {self.dummy_instrument[3]:.12f} V'
+            #5.000000000000 V'
         else: 
             reply = self.Send('get', f"outputVoltage.u{channel}")
         result = self.ParseReply(reply, 'float')
         return result
 
     def SetCurrentLimit(self, channel, current):
-        '''Channel Current Set Target (limit) ::: [A] ::: float'''
+        '''Channel Current Set Target (limit) ::: [mA] ::: float'''
+        current = current / 1000
         if self.mode:
             print(f'ILimit would be set to {current} V on Ch{channel}')
         else:
             self.Send('set', f"outputCurrent.u{channel} F {current}")
 
     def GetCurrentLimit(self, channel):
-        '''Channel Current Get Target (limit set by SetCurrentLimit) ::: [A] ::: float'''
+        '''Channel Current Get Target (limit set by SetCurrentLimit) ::: [mA] ::: float'''
         if self.mode: 
-            reply = 'WIENER-CRATE-MIB::outputCurrent.u604 = Opaque: Float: 5.000000000000 V'
+            reply = 'WIENER-CRATE-MIB::outputCurrent.u604 = Opaque: Float: 0.001000000000 A'
         else: 
             reply = self.Send('get', f"outputCurrent.u{channel}")
         result = self.ParseReply(reply, 'float')
-        return result
+        return result*1000
     
     def QueryVoltage(self, channel, mode = 'Sense'):
         ''' 
@@ -114,20 +118,20 @@ class MPOD:
         '''
         #TODO: determine difference between voltage types. Sense appears to be the useful one for now... 
         if self.mode: #example response to be parsed
-            reply = f'WIENER-CRATE-MIB::outputMeasurement{mode}Voltage.u604 = Opaque: Float: 0.093592196703 V'
+            reply = f'WIENER-CRATE-MIB::outputMeasurement{mode}Voltage.u604 = Opaque: Float: {self.dummy_instrument[5]:.12f} V'
         else:
             reply = self.Send('get', f"outputMeasurement{mode}Voltage.u{channel}")
         result = self.ParseReply(reply, 'float')
         return result
         
     def QueryCurrent(self, channel):
-        ''' Channel Actual Current Query ::: [A] ::: float'''
+        ''' Channel Actual Current Query ::: [mA] ::: float'''
         if self.mode:
-            reply = 'WIENER-CRATE-MIB::outputMeasurementCurrent.u604 = Opaque: Float: 0.093592196703 V'
+            reply = 'WIENER-CRATE-MIB::outputMeasurementCurrent.u604 = Opaque: Float: 0.001592196703 A'
         else:
             reply = self.Send('get', f"outputMeasurementCurrent.u{channel}")
         result = self.ParseReply(reply, 'float')
-        return result
+        return result*1000
 
     def GetConfigMaxVoltage(self, channel, mode = 'Sense'):
         ''' 
@@ -143,14 +147,14 @@ class MPOD:
         return result
     
     def GetConfigMaxCurrent(self, channel):
-        ''' Channel Max Current Config (nominal) ::: [A] ::: float'''
+        ''' Channel Max Current Config (nominal) ::: [mA] ::: float'''
         #TODO: figure out how this differs from other currents
         if self.mode:
             reply = 'WIENER-CRATE-MIB::outputConfigMaxCurrent.u604 = Opaque: Float: 0.093592196703 A'
         else:
             reply = self.Send('get', f"outputConfigMaxCurrent.u{channel}")
         result = self.ParseReply(reply, 'float')
-        return result
+        return result*1000
 
     def SetPower(self, channel, power_state = 0):
         '''
@@ -158,13 +162,14 @@ class MPOD:
         Additonal states: resetEmergencyOff (2), setEmergencyOff (3), clearEvents(10)
         '''
         if self.mode:
+            self.dummy_instrument[-1] = power_state
             print(f'power on ch{channel} would be switched to {power_state}')
         else:
             self.Send('set', f"outputSwitch.u{channel} i {power_state}")
         
     def QueryPower(self, channel):
         if self.mode:
-            reply = 'WIENER-CRATE-MIB::outputSwitch.u604 = INTEGER: off(0)'
+            reply = f'WIENER-CRATE-MIB::outputSwitch.u604 = INTEGER: off({self.dummy_instrument[-1]:.0f})'
         else:
             reply = self.Send('get', f"outputSwitch.u{channel}")
         result = self.ParseReply(reply, 'integer')
@@ -174,7 +179,7 @@ class MPOD:
         ''' 
         Channel Voltage Set Rise Rate ::: [V/s] ::: float)
         direction: 'Rise' or 'Fall' 
-        Range: 1 mV/s - (20% *VoltageNominal)
+        Range: 1 mV/s - (20% * VoltageNominal)
                 OR 1 mV/s - 1%*VoltageNominal) IFF KILL_ENABLED
         TODO: finish validate input with Range
         Note: for most modules, rise & fall rates are tied together
@@ -184,6 +189,7 @@ class MPOD:
             warnings.warn('Requested rate too low! Rate set to minimum 1 mV/s')
         
         if self.mode: 
+            self.dummy_instrument[4] = rate
             print(f'VRate would be set to {rate} on ch{channel}')
         else: 
             self.Send('set', f"outputVoltage{direction}Rate.u{channel} F {rate}")
@@ -195,7 +201,7 @@ class MPOD:
         Note: for most modules, rise & fall rates are tied together
         '''
         if self.mode: 
-            reply = 'WIENER-CRATE-MIB::outputVoltageRiseRate.u604 = Opaque: Float: 0.093592196703 V/s'
+            reply = f'WIENER-CRATE-MIB::outputVoltageRiseRate.u604 = Opaque: Float: {self.dummy_instrument[4]:.12f} V/s'
         else: 
             reply = self.Send('get', f"outputVoltage{direction}Rate.u{channel}")
         result = self.ParseReply(reply, 'float')
@@ -203,10 +209,11 @@ class MPOD:
 
     def SetCurrentRate(self, channel, rate, direction =  'Rise'):
         ''' 
-        Channel Current Set Rise Rate ::: [A/s] ::: float)
+        Channel Current Set Rise Rate ::: [mA/s] ::: float)
         directions: 'Rise' and 'Fall' 
         Note: for most modules, rise & fall rates are tied together
         '''
+        rate = rate/1000
         if self.mode: 
             print(f'IRate would be set to {rate} on ch{channel}')
         else: 
@@ -214,7 +221,7 @@ class MPOD:
     
     def GetCurrentRate(self, channel, direction =  'Rise'):
         ''' 
-        Channel Current Get Rise Rate ::: [A/s] ::: float)
+        Channel Current Get Rise Rate ::: [mA/s] ::: float)
         directions: 'Rise' and 'Fall' 
         Range: 2% - 100% * CurrentNominal
         TODO: validate range
@@ -225,33 +232,36 @@ class MPOD:
         else: 
             reply = self.Send('get', f"outputCurrent{direction}Rate.u{channel}")
         result = self.ParseReply(reply, 'float')
-        return result
+        return result*1000
     ### ADDITIONAL FUCTIONS ####
     def GetAllNames(self):
         #Output all channel names in an array
-        #TODO: parse further into modules and channels
         #TODO: get module info
         if self.mode: 
-            reply = "WIENER-CRATE-MIB::outputName.u102 = STRING: U102 \nWIENER-CRATE-MIB::outputName.u203 = STRING: U203\nWIENER-CRATE-MIB::outputName.u204 = STRING: U204"
+            reply = f'WIENER-CRATE-MIB::outputName.u102 = STRING: {101}'
+            # reply = "WIENER-CRATE-MIB::outputName.u102 = STRING: U102 \nWIENER-CRATE-MIB::outputName.u203 = STRING: U203\nWIENER-CRATE-MIB::outputName.u204 = STRING: U204"
         else: 
             reply = self.Send('walk', 'outputName')
         result = self.ParseReply(reply, 'string')
         return result
 
-    def SetPowerCrate(self, power_state = 0):
+    def SetPowerCrate(self, power_state = None):
+        if power_state is None:
+            power_state = int(not self.QueryPowerCrate())
         if self.mode:
+            self.dummy_instrument[-2] = power_state
             print(f'crate power would be switched to {power_state}')
         else:
             self.Send('set', "sysMainSwitch.0 i {power_state}")
     
     def QueryPowerCrate(self):
         if self.mode:
-            reply = 'WIENER-CRATE-MIB::sysMainSwitch.0 = INTEGER: OFF(0)'
+            reply = f'WIENER-CRATE-MIB::sysMainSwitch.0 = INTEGER: ON({self.dummy_instrument[-2]})'
         else: 
             reply = self.Send('get', "sysMainSwitch.0")
         result = self.ParseReply(reply, 'integer')
         
-        return result
+        return int(result)
         
     ##### WORKS IN PROGRESS####    
     def GetStatus(self, channel):

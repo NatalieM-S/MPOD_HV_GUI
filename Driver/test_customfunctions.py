@@ -2,10 +2,11 @@ from MPODClass import MPOD
 from MPODCustomFunctions import CustomFx
 
 M=MPOD()
-F = CustomFx(M)
-# F.Test()
-F.ChannelsPerModule()
-F.RampTogether([101,102,103,500,501])
-F.Reset()
-F.RampDownAll()
-F.GetAllValues()
+FX = CustomFx(M)
+# FX.Test()
+FX.ChannelsPerModule()
+# FX.RampTogether()
+FX.Reset()
+FX.RampAll() #default is to ramp all channels to zero
+FX.GetAllValues()
+print(FX.last_frame)

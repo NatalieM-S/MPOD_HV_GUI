@@ -11,20 +11,21 @@ import GUIExtras.Widgets as widget
 #import ctypes
 """
 Written by Natalie Mujica-Schwahn
+
 from GUI import GUI
-G=GUI(n_channels = 5, take_real_data = True)
+G=GUI(take_real_data = True)
 G.start_app()
 """
 
 class GUI:
-    def __init__(self, IP = '169.254.107.70', n_channels = 5, take_real_data = True):
+    def __init__(self, IP = '169.254.107.70', take_real_data = True):
         #TODO: test autodetect of channels and remove this input
         #TODO: add check if instrument is connected
-        self.warnings = ['']  # List of startup warnings to display on front
+        self.warnings = ['This GUI is a work in progress, and has not been tested yet. Data Controls & Saving & File Path panels should function. \nInstrument control features are incomplete and likely buggy, but try it out! Send commands using Details tab. \nMany errors can be returned as warnings in the terminal. Please collect these in a text file if possible.']  # List of startup warnings to display on front
         self.IP = IP
         self.take_real_data = take_real_data  # True: Instrument data, False: synthesized data
         if not take_real_data:
-            self.warnings = ['Dummy data plotted. Set take_real_data to True to plot real data']
+            self.warnings.append(['Dummy data plotted. Set take_real_data to True to plot real data'])
         self.MPOD, self.FX = None, None #MPOD Class & functions object placeholders
         self.create_data_task()
         self.n_channels = self.FX.n_channels
@@ -47,7 +48,7 @@ class GUI:
         self.ax_set, self.plot_set, self.tag_set = [], [], [] #lists of names
         # Generate enable mask & column names from n_channels
         column_names = ['V', 'I']
-        self.units_name = ['[V]', '[A]'] # Units that are measured by columns
+        self.units_name = ['[V]', '[mA]'] # Units that are measured by columns
         self.column_names = ['t']
         #TODO: Update save column names to capture channel name
         for n in range(self.n_channels):
@@ -176,14 +177,30 @@ class GUI:
 
     def checkbox_TF(self, sender, data):
         # Match source to correct column of data
-        source = sender.split('_')
-        source = source[1]
-        en_out = []
-        for i in range(1, len(self.column_names)):
-            if source == self.column_names[i]:
-                en_out = i - 1# Edit boolean visibility enable list
-                self.en[en_out] = data  
-        self.link_plot(1)
+        source_id = sender.split('_')
+        source = source_id[1]
+        
+        if source_id[0] == 'enable':
+            en_out = []
+            for i in range(1, len(self.column_names)):
+                if source == self.column_names[i]:
+                    en_out = i - 1# Edit boolean visibility enable list
+                    self.en[en_out] = data  
+            self.link_plot(1)
+
+        elif source_id[0] == 'ENABLE': #module disable/enable
+            active_modules = []
+            m_out, ch_out = [], []
+            for m in self.FX.modules:
+                active_modules.append(dpg.get_value(f'ENABLE_{m}'))
+            for idx, val in enumerate(active_modules):
+                if val:
+                    m_out.append(self.FX.modules[idx])
+                    for ch in self.FX.channels[idx]:
+                        ch_out.append(ch)
+            self.FX.active_modules = m_out
+            self.FX.active_channels = ch_out
+            print(m_out,'+',ch_out)
 
     def update_sample_rate(self): # Check and set sample rate for future data points
         self.sample_rate = dpg.get_value('sample_rate')
@@ -206,6 +223,7 @@ class GUI:
 
     def close(self):  # Cleanup save and close instrument
         #TODO: close on save & Protections!
+        print('program closed')
         if len(self.save_data) > 0:
             out = input('Do you want to save your data? y/n    ')
             yes_list = ['y', 'yes', 'Yes', 'Y', 'YES', True, 1, 'ok']
@@ -229,26 +247,20 @@ class GUI:
                 dpg.configure_item(win, no_close = True, no_move = True, no_resize = True)       
         self.initialized = 1
 
-    def button_example(self, sender, data):
-        #TODO: get channel input set up and button formatting
-        # dpg.set_value('VCH102',10.1)
-        self.FX.Test()
-        # widget.test(self.MPOD)
-        #self.MPOD.SetPower(101, data)
-        print('button pressed')
 
-    def checkbox_example(self, sender, data):
-        print(f'Checkbox set to {data}')
-
-    def input_example(self, sender, data):
-        print(f'Input set to {data}')
+        # print(f'Input set to {data}')
 
     def get_plot_data(self):
+        # i_limit, i_rate, i_actual, v_target, v_rate, v_actual, pwr_crate, pwr_ch = self.FX.GetAllValues()
+        self.FX.GetAllValues()
+        for kind in ['V', 'I']:
+            widget.SetTable(self.FX.all_channels, kind, self.FX)
+        v_actual = self.FX.last_frame[5]#data from MPOD.QueryVoltage
+        i_actual = self.FX.last_frame[2]#data from MPOD.QueryCurrent
         data = []
-        for ch in self.FX.all_channels:
-            data.append(self.MPOD.QueryVoltage(ch))
-            data.append(self.MPOD.QueryCurrent(ch))
-        #TODO: update to QueryAll (once added)
+        for idx in range(len(i_actual)):
+            data.append(v_actual[idx])
+            data.append(i_actual[idx])
         return data
 
     def update_loop(self):
@@ -259,7 +271,7 @@ class GUI:
                 if self.MPOD is None:
                     self.create_data_task()
                 #TODO: Add check if datatask exists. if N, recreate, if Y, acquire data
-                instrument_data = self.get_plot_data()
+                instrument_data = self.get_plot_data()#takes data, updates table
                 append_data = np.array(instrument_data)
                 append_data = append_data * self.scale_factor 
                 if len(self.data_series) == 0:
@@ -300,7 +312,9 @@ class GUI:
             # Updates data size counter
             self.data_size = len(self.save_data + 1) * (self.n_channels + 1)
             dpg.set_value('datasize', f'{self.data_size:.2E}')
+            #Refresh plot
             self.link_plot(0)
+
             # Auto saving
             if dpg.get_value("Autosave"):
                 self.n_autosave = dpg.get_value('NAutosave')
@@ -320,7 +334,33 @@ class GUI:
                         dpg.bind_item_theme('messages', 'text_theme')
                         self.autosave_counter = self.autosave_counter + 1
 
-
+    def GUI_ramp_together(self):
+        [deltas, starting, rate, thresh, n_div] = self.FX.RampTogether(pass_to_GUI = True)
+        channels = self.FX.active_channels
+        # thresh, n_div = [],[] #current default: 1, 10
+        #TODO: test different thresholds & n_div settings. Then update MPODCustomFunctions.py
+        #same steps here as in ramptogether. needed to be passed here to prevent plot from hanging
+        max_idx = deltas.index(max(deltas))
+        for n in range(n_div):
+                for idx, ch in enumerate(channels):
+                    subdelta = deltas[idx]/n_div #V interval at each step
+                    self.MPOD.SetTargetVoltage(ch, starting[idx] + subdelta)
+                    self.MPOD.SetVoltageRate(ch, rate)#only needs to be sent once for ISEG HV
+                    #TODO: check this ^^^^
+                time.sleep(0.1)
+                for idx, ch in enumerate(channels):
+                    self.MPOD.SetPower(ch, 1)# Turn on HV
+                    current_V, target_V = 0, thresh*10
+                    self.update_loop()
+                while abs(current_V - target_V) > thresh:
+                    current_V = self.MPOD.QueryVoltage(channels[max_idx])
+                    target_V = self.MPOD.GetTargetVoltage(channels[max_idx])
+                    #manual thresholding. probably better way to do this with querying ramp status
+                    #waits until biggest change is completed
+                    #TODO: TEST UPDATE LOOP!
+                    # time.sleep(0.1)
+                    self.update_loop()
+                    print('Target: ', target_V, '\nActual: ', current_V)
     ############################INITALIZATION###########################    
     def start_app(self):
         m = get_monitors()
@@ -347,7 +387,7 @@ class GUI:
                     dpg.add_theme_color(dpg.mvThemeCol_Text, [204, 0, 0], category = dpg.mvThemeCat_Core)
             with dpg.theme(tag = 'text_theme'):
                 with dpg.theme_component(dpg.mvAll):
-                    dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 204, 0], category = dpg.mvThemeCat_Core)
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, [0, 204, 0], category = dpg.mvThemeCat_Core)        
 
         dpg.add_file_dialog(directory_selector = True, show = False, tag = "file_dialog_id", width = heights[0],
         height=heights[0] // 2, callback = self.user_selected_filepath)
@@ -377,8 +417,8 @@ class GUI:
                             dpg.add_text(f'u{self.FX.all_channels[y]}')
                             y = y + 1  
 
-            dpg.add_button(label = "Disable all", tag = "ClearChecks", callback = self.set_all_checks, user_data = False, width = widths[0])
-            dpg.add_button(label = "Enable all", tag = "EnableAllChecks", callback = self.set_all_checks, user_data = True, width = widths[0])
+            dpg.add_button(label = "Disable (plotting) all", tag = "ClearChecks", callback = self.set_all_checks, user_data = False, width = widths[0])
+            dpg.add_button(label = "Enable (plotting) all", tag = "EnableAllChecks", callback = self.set_all_checks, user_data = True, width = widths[0])
             #TODO: disable/enable by module 
             dpg.add_separator()
             dpg.add_text('Data sample rate (approx):')
@@ -389,46 +429,84 @@ class GUI:
             dpg.add_text('\nSave data size = ')
             dpg.add_text(f'{self.data_size:g}', tag = 'datasize')
             dpg.add_button(label='Clear save data', callback = self.clear_save_data, tag = 'ClearData', width = widths[0])
-
+       
         ########## MAIN WINDOW ###############
         with dpg.window(label = "Live Graph", height = heights[0], width = widths[1], pos = (0, 0), horizontal_scrollbar = True, tag = 'plotter', no_title_bar = True):
             with dpg.tab_bar(tag = "TabBar"):
                 dpg.add_tab(label = "Main", tag = "Tab1")
                 dpg.add_tab(label = "Details", tag = "Tab2")
                 dpg.add_tab(label = 'Instrument info', tag = "Tab3")
+        for w in 0.5, 0.5: widths.append(int(widths[1]*w)) #new container sizes w margin for padding
+        for h in 0.5, 0.5: heights.append(int(heights[0]*h*0.95))
+        
+        ### SETTINGS TAB: ###
+        #TODO: Consider using:
+        #  menu bar (like a dropdown that hides settings)
+        #  multiple selection lists (selectables)
+        #TODO: Add selection for modules being used
 
-            ##### MAIN TAB ##########
-            for w in 0.25, 0.75: widths.append(int(widths[1]*w)) #new container sizes w margin for padding
-            for h in 0.5, 0.5: heights.append(int(heights[0]*h*0.95))
-            with dpg.group(horizontal=True, parent = 'Tab1'):
-                with dpg.child_window(height=heights[0], width=widths[2]):
-                    ##### PLOT 1 ######
-                    self.ax_set.append('1')
-                    self.plot_set.append('Plot1')
-                    with dpg.plot(label = "V(t) for MPOD", height = heights[2], width = widths[2], tag = self.plot_set[-1], no_title = True):
-                        dpg.add_plot_legend()# Create legend and axes
-                        dpg.add_plot_axis(dpg.mvXAxis, label = "time", tag = "time_axis" + self.ax_set[-1])
-                        dpg.add_plot_axis(dpg.mvYAxis, label = "Volts [V]", tag = "y_axis" + self.ax_set[-1])
-                        for i in range(0,self.n_outputs,2):
-                            dpg.add_line_series([], [], label = self.column_names[i + 1], parent = "y_axis" + self.ax_set[-1], tag = self.column_names[i + 1] + 'tag1')  # Tag = V1tag1, V2tag1...
-                    ##### PLOT 2 ######
-                    self.ax_set.append('2')
-                    self.plot_set.append('Plot2')
-                    with dpg.plot(label = "I(t) for MPOD", height = heights[2], width = widths[2], tag = self.plot_set[-1], no_title = True):
-                        dpg.add_plot_legend()# Create legend, then axes
-                        dpg.add_plot_axis(dpg.mvXAxis, label = "time", tag = "time_axis" + self.ax_set[-1])
-                        dpg.add_plot_axis(dpg.mvYAxis, label = "Current [A]", tag = "y_axis" + self.ax_set[-1])
-                        for i in range(1,self.n_outputs,2):
-                            dpg.add_line_series([], [], label = self.column_names[i + 1], parent = "y_axis" + self.ax_set[-1], tag = self.column_names[i + 1] + 'tag1')  # Tag = I1tag1, I2tag1...
-                with dpg.child_window(height=heights[0], width=widths[3]):
-                    with dpg.child_window(height=heights[2], width=widths[3]):
-                        dpg.add_text("Voltage Control")
-                        widget.CreateTable(self.FX.all_channels, widths[3]//3, "V")
+        with dpg.group(horizontal = False, parent = 'Tab2'):
+            with dpg.group(horizontal = True):
+                dpg.add_button(label = 'Crate Power', callback = lambda: self.MPOD.SetPowerCrate(), tag='pwr_crate')
+                dpg.add_text('Turns entire crate on or off')
+            with dpg.group(horizontal = True):
+                dpg.add_button(label = "Ramp Together", callback = self.GUI_ramp_together, user_data = None, width = widths[0])
+                dpg.add_text(f'Ramps all channels at proportional ramp rates via N discrete steps')
+            with dpg.group(horizontal = True):
+                dpg.add_button(label = "Ramp All", callback = lambda: self.FX.RampAll(self.FX.all_channels, self.FX.last_frame[3]), user_data = None, width = widths[0])
+                dpg.add_text(f'Ramps all channels at set ramp rates: {self.FX.last_frame[4]} V/s')
+            with dpg.group(horizontal = True):
+                dpg.add_button(label = "Ramp All to Zero", callback = self.FX.RampAll, user_data = None, width = widths[0])
+                dpg.add_text(f'Ramps all channels off at: {self.FX.last_frame[4]} V/s')
+                #TODO: add ramp rate value in text above
+            widget.CreateIncrementButtons(self.FX, widths[0])
+            # dpg.add_button(label = "Ramp Selected", callback = self.FX.RampAll, user_data = None, width = widths[0])
+            #TODO: set up selections of active channels 
+            with dpg.group(horizontal = True):
+                dpg.add_text('Enable Control of Module #:')
+                for m in self.FX.modules:
+                    dpg.add_checkbox(label = f'{m}', callback = self.checkbox_TF, default_value = True, user_data = m, tag = f'ENABLE_{m}')
+            dpg.add_separator()
+            # dpg.add_button(label = 'utility', callback = lambda : print(self.FX.active_modules))
+            dpg.add_button(label = 'Fault Reset', tag = 'rst', callback = self.FX.Reset)
+            # with dpg.tab_bar():
+            #     for module in self.FX.modules:
+            #         dpg.add_tab(label = f'Slot{module}', tag = )
+            dpg.add_text('still testing many other settings.... ')
 
-                    with dpg.child_window(width=widths[3], height=heights[2]):
-                        dpg.add_text("Current Control")
-                        widget.CreateTable(self.FX.all_channels, widths[3]//3, "I")
-                    #TODO: cleanup sizing of children, maybe use padding values
+            ###### MAIN TAB ###########
+        with dpg.group(horizontal=True, parent = 'Tab1'):
+            with dpg.child_window(height=heights[0], width=widths[2]):
+                ##### PLOT 1 ######
+                self.ax_set.append('1')
+                self.plot_set.append('Plot1')
+                with dpg.plot(label = "V(t) for MPOD", height = heights[2], width = widths[2], tag = self.plot_set[-1], no_title = True):
+                    dpg.add_plot_legend()# Create legend and axes
+                    dpg.add_plot_axis(dpg.mvXAxis, label = "time", tag = "time_axis" + self.ax_set[-1])
+                    dpg.add_plot_axis(dpg.mvYAxis, label = "Volts [V]", tag = "y_axis" + self.ax_set[-1])
+                    for i in range(0,self.n_outputs,2):
+                        dpg.add_line_series([], [], label = self.column_names[i + 1], parent = "y_axis" + self.ax_set[-1], tag = self.column_names[i + 1] + 'tag1')  # Tag = V1tag1, V2tag1...
+                ##### PLOT 2 ######
+                self.ax_set.append('2')
+                self.plot_set.append('Plot2')
+                with dpg.plot(label = "I(t) for MPOD", height = heights[2], width = widths[2], tag = self.plot_set[-1], no_title = True):
+                    dpg.add_plot_legend()# Create legend, then axes
+                    dpg.add_plot_axis(dpg.mvXAxis, label = "time", tag = "time_axis" + self.ax_set[-1])
+                    dpg.add_plot_axis(dpg.mvYAxis, label = "Current [mA]", tag = "y_axis" + self.ax_set[-1])
+                    for i in range(1,self.n_outputs,2):
+                        dpg.add_line_series([], [], label = self.column_names[i + 1], parent = "y_axis" + self.ax_set[-1], tag = self.column_names[i + 1] + 'tag1')  # Tag = I1tag1, I2tag1...
+            with dpg.child_window(height=heights[0], width=widths[3]):
+                with dpg.child_window(height=heights[2], width=widths[3]):
+                    with dpg.group(horizontal = True):
+                        dpg.add_text("Voltage Control (in V)")
+                        # dpg.add_button("Send All Input Voltages", callback = self.FX., small = True)
+                    widget.CreateTable(self.FX.all_channels, widths[3]*0.9//4, "V", self.FX)
+
+                with dpg.child_window(width=widths[3], height=heights[2]):
+                    dpg.add_text("Current Control (in mA)")
+                    widget.CreateTable(self.FX.all_channels, widths[3]*0.9//4, "I", self.FX)
+                #TODO: cleanup sizing of children, maybe use padding values
+                #TODO: add indicator lines on plots to show target voltage(s)
 
           
             ##### INSTRUMENT INFO TAB ##########
@@ -439,35 +517,7 @@ class GUI:
                 dpg.add_text("Basic module specs:", parent = 'Tab3')
                 dpg.add_image("info", parent = 'Tab3')
         
-        ### SETTINGS TAB: ###
-        #TODO: Consider using:
-        #  menu bar (like a dropdown that hides settings)
-        #  multiple selection lists (selectables)
-        #TODO: Add selection for modules being used
-
-        with dpg.group(horizontal = False, parent = 'Tab2'):
-            with dpg.table(header_row = True, parent = 'Tab2'):
-                n_columns, n_rows = 3, 4
-                for n in range(n_columns):
-                    dpg.add_table_column(label = f'Set {n}')
-
-                for i in range(0, n_rows):
-                    with dpg.table_row():
-                        for j in range(0, n_columns):
-                            dpg.add_text(f"Row{i} Column{j}")
-                            dpg.add_input_int(label = 'Value', default_value = 10, width = widths[0] // 2)
-                            dpg.add_input_int(label = 'Value', default_value = 10, width = widths[0] // 2)
-
-            dpg.add_button(label = "Ramp Down All", callback = self.FX.RampDownAll, user_data = None, width = widths[0])
-            
-            widget.CreateIncrementButtons(self.FX, widths[0])
-            # dpg.add_button(label = "Ramp Down Selected", callback = self.FX.RampDownAll, user_data = None, width = widths[0])
-            #TODO: set up selection and modify RampDownAll to allow for selections
-            dpg.add_checkbox(label = 'Check', callback = self.checkbox_example, default_value = False)
-            dpg.add_input_int(label = 'Value', default_value = 10, callback = self.input_example, width = widths[0] // 2)
-            dpg.add_separator()
-            dpg.add_text('testing settings')
-
+        
         ########## SAVE & FILE PATH WINDOW ###############
         with dpg.window(label = "Saving & File Path", height = heights[1], width = self.screensize[0], pos = (0, heights[0]), tag = 'saver'):
             with dpg.group(horizontal = True):
@@ -515,8 +565,9 @@ class GUI:
                 self.update_loop()  # Core DAQ and plotting loop
                 t_zero = time.monotonic()
             t_one = time.monotonic() - t_zero # For sample rate calc
+        self.close()
         dpg.destroy_context()
 
 #TODO: change to defaults for actually connecting to instrument
-g = GUI(1, 5, False) 
+g = GUI(take_real_data = True) 
 g.start_app()

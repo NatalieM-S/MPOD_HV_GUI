@@ -1,7 +1,7 @@
 from MPODClass import MPOD
 
 M=MPOD()
-ch = 101
+ch = 101 #assumes slot 1 channel 1
 
 #Voltages
 M.SetTargetVoltage(ch ,0.5)
@@ -10,7 +10,7 @@ print('Target Voltage: ', x, ' V')
 
 M.SetCurrentLimit(ch, 1)
 x = M.GetCurrentLimit(ch)
-print('Current Limit: ', x, ' A')
+print('Current Limit: ', x, ' mA')
 
 
 x = M.QueryVoltage(ch,'Sense')
