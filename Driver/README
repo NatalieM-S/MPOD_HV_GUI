@@ -24,4 +24,8 @@ Setup instructions:
         sudo sed -i 's/mibs :/# mibs :/g' /etc/snmp/snmp.conf 
 2) Download MIB file (link above) WIENER-CRATE-MIB.txt into /usr/share/snmp/mibs (Windows: C:\usr\share\snmp\mibs)
 
-
+Most functionality comes from MPODClass.py, which is plotted by GUI.py
+Currently exception handling is quite minimial and statuses are not read out or handled.
+Some examples are given, but the main files to be tested are GUI.py, backup1.py and backup2.py
+They can be run as complete files, or the backup files could be run line by line in a terminal. 
+Make sure requirements.txt is installed. 

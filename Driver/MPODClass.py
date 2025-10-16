@@ -2,6 +2,7 @@ import subprocess
 import os
 import warnings
 from datetime import datetime
+import pexpect as px
 # Written by Natalie Mujica-Schwahn, last updated: 10/4/25
 class MPOD:
     r'''
@@ -14,57 +15,59 @@ class MPOD:
     def __init__(self, IP = '169.254.107.70', mode = 0, MIBdir = "/usr/share/snmp/mibs"):
         self.IP = IP
         self.mibdir = MIBdir #or os.path.expanduser("~/.snmp/mibs")
-        self.mode = 0#mode: 0, driver, 1, debug (not connected), 
+        self.mode = mode#mode: 0, driver, 1, debug (not connected), 
         self.dummy_instrument = [0, 1, 2, 13, 14, 15, 1, 0]#1 ch instrument mimic[i_limit, i_rate, i_actual, v_target, v_rate, v_actual, pwr_crate, pwr_ch]
-        os.environ["MIBS"] = "+WIENER-CRATE-MIB"
-        if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
-            os.environ["MIBDIRS"] = self.mibdir
-        else: 
-            raise RuntimeError(f"MIB file was not found in {self.mibdir}")
-        
+        # os.environ["MIBS"] = "+WIENER-CRATE-MIB"
+        # if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
+            # os.environ["MIBDIRS"] = self.mibdir
+        # else: 
+            # raise RuntimeError(f"MIB file was not found in {self.mibdir}")
+        # example = "snmpget -v 2c -Op .12 -m +WIENER-CRATE-MIB -c guru 169.254.107.70 outputPower.u0"
     def Send(self,cmd_type = 'walk', cmd = ''):
         '''Base command struct and MPODCrate communication functions'''
         #result = subprocess.run([cmd],shell = True,capture_output = True)
         if cmd_type == 'walk':#check connection
             #cmd = f"snmpwalk -v 2c -m +WIENER-CRATE-MIB -c public {self.IP} " + cmd#rm -m from all
-            cmd = f"snmpwalk -v 2c -c public {self.IP} " + cmd
+            cmd = f"snmpwalk -v 2c -m +WIENER-CRATE-MIB -c public {self.IP} " + cmd
         elif cmd_type == 'set':
-            cmd = f"snmpset -v 2c -Op .12 -c guru {self.IP} " + cmd
+            cmd = f"snmpset -v 2c -Op .12 -m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
         elif cmd_type == 'get':
-            cmd = f"snmpget -v 2c -Op .12 -c guru {self.IP} " + cmd
+            cmd = f"snmpget -v 2c -Op .12 -m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
         else:
             warnings.warn(cmd_type + ' is invalid command type')
         try:
-            result = subprocess.run(cmd.split(), capture_output = True)
-            result_parsed = str(result.stdout).lstrip('b\'').rstrip('\'').rstrip('\n')
-        except subprocess.CalledProcessError as err:
-            warnings.warn(f"SNMP command failed. Command: {cmd}, Error: {err.stderr}")
-            results_parsed=[]
+            # result = subprocess.run(cmd.split(), capture_output = True)#doesnt work in python! 
+            # result_parsed = str(result.stdout).lstrip('b\'').rstrip('\'').rstrip('\n')
+            result = px.run(cmd)
+            result_parsed = result.decode().rstrip('\n').rstrip('\r')
+        except:# subprocess.CalledProcessError as err:
+            warnings.warn(f"SNMP command failed. Command: {cmd})")#, Error: {err.stderr}")
+            result_parsed=None
             #raise RuntimeError(f"SNMP command failed: {err.stderr.strip()}")
-        return result_parsed#, result.stderr 
+        return result_parsed#, result, cmd#, result.stderr 
     
     def ParseReply(self, reply, mode):
-        match mode:
-            case 'float':
-                #parse float
-                loc = reply.find('Float:')
-                result = float(reply[loc+6:-3])
-            case 'string':
-                #SPECIFICALLY FOR FINDING OUTPUT NAMES. MAY NEED EXTENSION
-                result = []
-                for k in reply.split('WIENER-CRATE-MIB::outputName.'):
-                    if len(k) > 0:
-                        loc = k.find('=')
-                        k = k[0:loc].strip().lstrip('u')
-                        result.append(int(k))
-            case 'integer':
-                #SPECIFICALLY FOR ON/OFF, MAY NEED EXTENSION
-                result = int(reply.split('(')[1].strip(')'))
-            case 'other':
-                loc = 1
-                #parse other
-            case _:
-                warnings.warn(f"mode: {mode} not supported")
+        if reply is None: 
+            result = None
+        else:
+            match mode:
+                case 'float':
+                    #parse float
+                    loc = reply.find('Float:')
+                    result = float(reply[loc+6:-3])
+                case 'string':
+                    #SPECIFICALLY FOR FINDING OUTPUT NAMES. MAY NEED EXTENSION
+                    result = []
+                    for k in reply.split('WIENER-CRATE-MIB::outputName.'):
+                        if len(k) > 0:
+                            loc = k.find('=')
+                            k = k[0:loc].strip().lstrip('u')
+                            result.append(int(k))
+                case 'integer':
+                    #SPECIFICALLY FOR ON/OFF, MAY NEED EXTENSION
+                    result = int(reply.split('(')[1].strip(')'))
+                case _:
+                    warnings.warn(f"mode: {mode} not supported")
 
         return result
     ###### MAIN FUNCTIONS (LIST FROM ISEG MANUAL TABLE 2)#######
@@ -238,8 +241,7 @@ class MPOD:
         #Output all channel names in an array
         #TODO: get module info
         if self.mode: 
-            reply = f'WIENER-CRATE-MIB::outputName.u102 = STRING: {101}'
-            # reply = "WIENER-CRATE-MIB::outputName.u102 = STRING: U102 \nWIENER-CRATE-MIB::outputName.u203 = STRING: U203\nWIENER-CRATE-MIB::outputName.u204 = STRING: U204"
+            reply = f'WIENER-CRATE-MIB::outputName.u101 = STRING: {101}'
         else: 
             reply = self.Send('walk', 'outputName')
         result = self.ParseReply(reply, 'string')

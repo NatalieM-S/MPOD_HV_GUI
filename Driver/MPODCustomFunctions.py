@@ -34,18 +34,17 @@ class CustomFx(DecorateAllMethods):
         self.MPOD = MPOD #object created from MPOD in MPODclass
         if take_real_data:
             self.all_channels = self.MPOD.GetAllNames()
-            self.n_channels = len(self.all_channels)
             self.modules, self.channels = self.ChannelsPerModule()
-        else:
+        # else:
             # self.all_channels = [101,102,103,104,105,301,302,303,304]#test long
             # self.modules, self.channels = [1,3], [[1,2,3,4,5],[1,2,3,4]]
-            self.all_channels = [101,102,202]#test short
-            self.modules, self.channels = [1,2], [[1,2],[2]]
-            self.n_channels = len(self.all_channels)
+            #self.all_channels = [101,102,202]#test short
+            #self.modules, self.channels = [1,2], [[1,2],[2]]
+        self.n_channels = len(self.all_channels)
         self.active_modules = self.modules
         self.active_channels = self.all_channels
         # self.active_channels = [101] #test subset only
-        self.last_frame = []
+        self.last_frame = [0,0,0,0,0,0,0,0]
         self.GetAllValues() #initialize last_frame with GetAllValues
 
     def Test(self):
@@ -62,13 +61,14 @@ class CustomFx(DecorateAllMethods):
         occupied_slots: [0,4]
         channel_list: [[1,2,3],[1,2,3,4,5,6]]
         '''
-        names = self.MPOD.GetAllNames()
+        names = self.all_channels#self.MPOD.GetAllNames()
         modules, channels = [], []
         for n in names:
             modules.append(n//100)
             channels.append(n - 100*(n//100))
 
         occupied_slots = list(set(modules))#slot occupied by each module
+        occupied_slots.sort()
         tmp, channel_list = [], []
         for i in range(len(occupied_slots)): 
             for idx, M in enumerate(modules): 
@@ -165,24 +165,29 @@ class CustomFx(DecorateAllMethods):
             for ch in channels:
                 self.MPOD.SetPower(ch, 1)
 
-    def GetAllValues(self, channels = None):
+    def GetAllValues(self, channels = None, modules = None):
+        #slow - better to replace with tablereads 
         i_limit, i_rate, i_actual = [], [], []
         v_target, v_rate, v_actual = [], [], []
         pwr_ch = []
         pwr_crate = self.MPOD.QueryPowerCrate()
         if channels is None:
                 channels = self.all_channels # keep all channels
+        if modules is None:
+                modules = self.modules # keep all channels
         if pwr_crate:
+            for n_module, m in enumerate(modules): #only need to read 1x per module for HV modules
+                    ch = m*100+self.channels[n_module][0]
+                    i_rate.append(self.MPOD.GetCurrentRate(ch))#1
+                    v_rate.append(self.MPOD.GetVoltageRate(ch))#4
             for ch in channels: 
-                    i_limit.append(self.MPOD.GetCurrentLimit(ch))
-                    i_rate.append(self.MPOD.GetCurrentRate(ch))
-                    i_actual.append(self.MPOD.QueryCurrent(ch))
+                    i_limit.append(self.MPOD.GetCurrentLimit(ch))#0
+                    i_actual.append(self.MPOD.QueryCurrent(ch))#2
 
-                    v_target.append(self.MPOD.GetTargetVoltage(ch))
-                    v_rate.append(self.MPOD.GetVoltageRate(ch))
-                    v_actual.append(self.MPOD.QueryVoltage(ch))
+                    v_target.append(self.MPOD.GetTargetVoltage(ch))#3
+                    v_actual.append(self.MPOD.QueryVoltage(ch))#5
 
-                    pwr_ch.append(self.MPOD.QueryPower(ch))
+                    pwr_ch.append(self.MPOD.QueryPower(ch))#6
                     # 'GetConfigMaxCurrent', #only need once per module
                     # 'GetConfigMaxVoltage', #only need once per module
                     # 'GetStatus',  #WIP

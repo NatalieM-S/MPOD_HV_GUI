@@ -19,13 +19,13 @@ G.start_app()
 
 class GUI:
     def __init__(self, IP = '169.254.107.70', take_real_data = True):
-        #TODO: test autodetect of channels and remove this input
         #TODO: add check if instrument is connected
+        #TODO: add mib file to this repo and point to self
         self.warnings = ['This GUI is a work in progress, and has not been tested yet. Data Controls & Saving & File Path panels should function. \nInstrument control features are incomplete and likely buggy, but try it out! Send commands using Details tab. \nMany errors can be returned as warnings in the terminal. Please collect these in a text file if possible.']  # List of startup warnings to display on front
         self.IP = IP
         self.take_real_data = take_real_data  # True: Instrument data, False: synthesized data
         if not take_real_data:
-            self.warnings.append(['Dummy data plotted. Set take_real_data to True to plot real data'])
+            self.warnings.append('Dummy data plotted. Set take_real_data to True to plot real data')
         self.MPOD, self.FX = None, None #MPOD Class & functions object placeholders
         self.create_data_task()
         self.n_channels = self.FX.n_channels
@@ -218,7 +218,7 @@ class GUI:
             dpg.set_value('sample_in_seconds', 'Data sampled as fast as possible')
 
     def create_data_task(self):
-        self.MPOD = MPOD(IP = self.IP, mode = self.take_real_data)
+        self.MPOD = MPOD(IP = self.IP, mode = not self.take_real_data)
         self.FX = CustomFx(self.MPOD, self.take_real_data)
 
     def close(self):  # Cleanup save and close instrument
@@ -454,7 +454,7 @@ class GUI:
                 dpg.add_text(f'Ramps all channels at proportional ramp rates via N discrete steps')
             with dpg.group(horizontal = True):
                 dpg.add_button(label = "Ramp All", callback = lambda: self.FX.RampAll(self.FX.all_channels, self.FX.last_frame[3]), user_data = None, width = widths[0])
-                dpg.add_text(f'Ramps all channels at set ramp rates: {self.FX.last_frame[4]} V/s')
+                # dpg.add_text(f'Ramps all channels at set ramp rates: {self.FX.last_frame[4]} V/s')
             with dpg.group(horizontal = True):
                 dpg.add_button(label = "Ramp All to Zero", callback = self.FX.RampAll, user_data = None, width = widths[0])
                 dpg.add_text(f'Ramps all channels off at: {self.FX.last_frame[4]} V/s')
@@ -539,13 +539,13 @@ class GUI:
                 dpg.add_button(label = 'Generate date string', callback = self.date_string, width = widths[0])
 
             # Display startup warnings, messages, and errors on GUI panel
+            dpg.add_text('warnings:')
             if type(self.warnings) == type(['a']):
                 warning = ''
                 for i in range(len(self.warnings)):
                     warning = warning + f' {i + 1}) ' + self.warnings[i]
-                    dpg.add_text(f'{len(self.warnings)} startup warning(s):' + warning, tag = 'messages',
-                    wrap = round(sum(widths[0:3]) * 0.9))
-                    dpg.bind_item_theme('messages', 'warning_text_theme')
+                    # dpg.add_text(f'{len(self.warnings)} startup warning(s):' + warning, tag = 'messages',wrap = round(sum(widths[0:3]) * 0.9))
+                    # dpg.bind_item_theme('messages', 'warning_text_theme')
             else:
                 dpg.add_text(self.warnings, tag = 'messages')
 
@@ -564,10 +564,9 @@ class GUI:
             if self.sample_rate == 0 or t_one > 1 / self.sample_rate:
                 self.update_loop()  # Core DAQ and plotting loop
                 t_zero = time.monotonic()
-            t_one = time.monotonic() - t_zero # For sample rate calc
+            t_one = time.monotonic() - t_zero # For sample rate calc          
         self.close()
         dpg.destroy_context()
 
-#TODO: change to defaults for actually connecting to instrument
 g = GUI(take_real_data = True) 
 g.start_app()
