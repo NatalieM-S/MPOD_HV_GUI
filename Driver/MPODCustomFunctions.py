@@ -43,7 +43,9 @@ class CustomFx(DecorateAllMethods):
         # self.active_channels = [101] #test subset only
         self.last_frame = []#most recently acquired data
         self.GetAllValues() #initialize last_frame with GetAllValues
-        self.cmd_values = [[0]*self.n_channels]*2#next values to send
+        cmd_values = [0]*self.n_channels
+        self.cmd_values = [cmd_values,cmd_values.copy()]#next values to send
+
         #[[Voltages],[Currents]]
 
     def ChannelsPerModule(self):
@@ -138,13 +140,15 @@ class CustomFx(DecorateAllMethods):
         Default: Ramp all channels down to zero. 
         Otherwise use input ramp_values values
         '''
+        print(ramp_vals)
         if channels_to_ramp is None:
             channels_to_ramp = self.all_channels #keep all channels here! 
         if ramp_vals is None:
-            ramp_vals = [0]*len(channels_to_ramp)
+            ramp_vals = [[0]*len(channels_to_ramp)]*2
         for idx, ch in enumerate(self.all_channels): 
             if ch in channels_to_ramp: 
-                self.MPOD.SetTargetVoltage(ch, ramp_vals[idx])
+                self.MPOD.SetTargetVoltage(ch, ramp_vals[0][idx])
+                # self.MPOD.SetCurrentLimit(ch, ramp_vals[1][idx])
                 self.MPOD.SetPower(ch, 1)
 
     def IncrementAll(self, sender, app_data, user_data):

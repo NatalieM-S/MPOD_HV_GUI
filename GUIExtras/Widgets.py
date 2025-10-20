@@ -9,7 +9,7 @@ def CreateTable(row_names, width, kind, FX):
         for i, row_label in enumerate(row_names):
             with dpg.table_row():
                 dpg.add_text(row_label)#channel
-                dpg.add_input_double(default_value = 0, step=0, step_fast=0, tag = f'{kind}Input{row_label}',callback = SendValue,user_data = FX)#target input
+                dpg.add_input_double(default_value = 0, step=0, tag = f'{kind}Input{row_label}',callback = SendValue,user_data = FX)#target input
                 #TODO: send this input to machine when ramp button is pressed
                 #TODO: Figure out how to deal w extraneous values (dont send defaulted zeros when not desired to)
                 dpg.add_text(default_value = f'{0} V', tag=f'{kind}Set{row_label}')#set target
@@ -70,10 +70,11 @@ def SendValue(sender, app_data, user_data):
     if 'Input' in sender:
         #Handles VInput and IInput
         # FX = user_data
-        idx = 0 + (sender[0] == 'I')
+        idx = 0 + (sender[0] == 'I') #V = 0, I  = 1
         ch = int(sender.split('Input')[1])
         idx2 = user_data.all_channels.index(ch)
         user_data.cmd_values[idx][idx2] = app_data
+        print(user_data.cmd_values)
 
 def CreateIncrementButtons(FX, width):
     v_to_increment = 0#dpg.get_value('')
@@ -84,9 +85,9 @@ def CreateIncrementButtons(FX, width):
     with dpg.group(horizontal=True):
         #Note: these multi-module callbacks with user data must be sent as a lambda fx as shown below:
         dpg.add_button(label = "Increment Active Channels", callback = lambda sender, app_data, user_data: FX.IncrementAll(sender, app_data, user_data), user_data = user_data, width=width, tag = 'increment_button')
-        dpg.add_input_double(default_value=0, width=width, callback = SendValue, user_data = 'increment_button', tag = 'v_to_increment')
+    dpg.add_input_double(default_value=0, width=width, callback = SendValue, user_data = 'increment_button', tag = 'v_to_increment')
         # dpg.add_checkbox(default_value = True, callback = SendValue, user_data = 'increment_button', tag = 'send_now')
-        dpg.add_text('Increments all active channels by ____ Volts')
+    dpg.add_text('Increments active channels by ____ Volts')
 
 def UpdateRegistry(FX):
     for idx, n in enumerate(FX.modules):

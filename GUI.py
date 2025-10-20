@@ -525,10 +525,11 @@ class GUI:
         with dpg.group(horizontal = False, parent = 'TabC'):
             
             # with dpg.group(horizontal = True):
-            dpg.add_button(label = "Ramp Together", callback = self.GUI_ramp_together, user_data = None, width = widths[0])
+            dpg.add_text('Voltage Ramping Functions:')
+            dpg.add_button(label = "Ramp Together (WORK IN PROGRESS)", callback = self.GUI_ramp_together, user_data = None, width = widths[0])
                 # dpg.add_text(f'Ramps all channels at proportional ramp rates via N discrete steps')
             with dpg.group(horizontal = True):
-                dpg.add_button(label = "Ramp Selected", callback = lambda: self.FX.RampAll(self.FX.active_channels, self.FX.cmd_values[1]), user_data = None, width = widths[0])
+                dpg.add_button(label = "Ramp Selected to Inputs", callback = lambda: self.FX.RampAll(self.FX.active_channels, self.FX.cmd_values), user_data = None, width = widths[0])
                 
                 # dpg.add_text(f'Ramps all channels at set ramp rates: {self.FX.last_frame[4]} V/s')
             
@@ -658,5 +659,5 @@ class GUI:
         self.close()
         dpg.destroy_context()
 
-g = GUI(take_real_data = False) 
-g.start_app()
+# g = GUI(take_real_data = False) 
+# g.start_app()
