@@ -93,7 +93,17 @@ class CustomFx(DecorateAllMethods):
 
     def RampMethod(self,mode,set_values):
         '''
-        Function to set fixed intervals for channels based on channel id or names (GEM, Drift)
+        MODES: 
+        - 'Voltage Divider' 
+                Inputs: set_values = [drift_voltage, GEM_max_voltage, ratio1, ratio2, ratio3, ratio4, ratio5, ratio6]
+                ratios must be < 1 
+        - 'Individual Increments'
+                Inputs: set_values = [dV0, dV1, dV2, dV3, dV4, dV5, dV6]
+        - 'Increment All'
+                Inputs: set_values =[dV]
+
+        Function to set voltages for channels with different behavior. 
+        Can be based on channel id or names (GEM, Drift)
         GEM Top+ is the uppermost layer, closest to the top/drift/cathode
         '''
         #Unpack channel IDs
@@ -135,7 +145,8 @@ class CustomFx(DecorateAllMethods):
                     FLAG = 1
                     print('Cancelled - Voltages not sent')
         elif mode == 'Individual Increments':
-            for idx, ch in enumerate(channels): 
+            v_to_increment = set_values
+            for idx, ch in enumerate(all_channels): 
                     v_target = self.MPOD.GetTargetVoltage(ch)# get prior target
                     self.MPOD.SetTargetVoltage(ch, v_target + v_to_increment[idx])#set new target
         elif mode == 'Increment All':
@@ -146,7 +157,7 @@ class CustomFx(DecorateAllMethods):
             self.RampMethod('Individual Increments', v_to_increment)
 
         if not FLAG:#turn channels on if not flagged (and if channels are not currently on)    
-            for ch in channels:
+            for ch in all_channels:
                 if not self.MPOD.QueryPower(ch):
                     self.MPOD.SetPower(ch, 1)
                     #TODO: add monitor for status here 
