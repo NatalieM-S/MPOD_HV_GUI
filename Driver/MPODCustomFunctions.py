@@ -31,16 +31,34 @@ class DecorateAllMethods:
                 setattr(cls, attr, my_decorator(value))
 
 class CustomFx(DecorateAllMethods):
-    def __init__(self, MPOD, take_real_data=True):
-        #custom limits & settings here
-        self.max_voltage_ramp = 0.1# [A/s]
+    def __init__(self, MPOD, take_real_data=True, active_modules = None, channel_names = None):
+        ### custom limits & settings here
+        self.max_voltage_ramp = 0.1# [A/s] 
         self.MPOD = MPOD #object created from MPOD in MPODclass
+        self.channel_names = channel_names
         self.all_channels = self.MPOD.GetAllNames()
+        self.full_channel_list = self.all_channels.copy()#to allow for active module control
         self.modules, self.channels = self.ChannelsPerModule()
+        #### Controls active module input, overrides all channels ###
+        if active_modules is None: 
+            active_modules = self.modules
+        else: 
+            module_overwrite = active_modules
+            channel_overwrite,all_channels_overwrite = [],[]
+            for idx, m in enumerate(active_modules):
+                loc = self.modules.index(m)
+                ch_list = self.channels[loc]
+                channel_overwrite.append(ch_list)
+                for ch in ch_list: 
+                    all_channels_overwrite.append(ch)
+            self.modules = active_modules
+            self.all_channels = all_channels_overwrite
+            self.channels = channel_overwrite
+        ###################################################
+
         self.n_channels = len(self.all_channels)
         self.active_modules = self.modules.copy()
         self.active_channels = self.all_channels.copy()
-        # self.active_channels = [101] #test subset only
         self.last_frame = []#most recently acquired data
         self.GetAllValues() #initialize last_frame with GetAllValues
         cmd_values = [0]*self.n_channels
@@ -73,7 +91,68 @@ class CustomFx(DecorateAllMethods):
             tmp=[]
         return occupied_slots, channel_list
 
-    def RampTogether(self, channels = None, pass_to_GUI = False):
+    def RampMethod(self,mode,set_values):
+        '''
+        Function to set fixed intervals for channels based on channel id or names (GEM, Drift)
+        GEM Top+ is the uppermost layer, closest to the top/drift/cathode
+        '''
+        #Unpack channel IDs
+        drift_channel = self.all_channels[self.channel_names.index('Drift')]
+        GEMTop_channels = [self.all_channels[self.channel_names.index('GEM Top+')],self.all_channels[self.channel_names.index('GEM Top-')]]
+        GEMMid_channels = [self.all_channels[self.channel_names.index('GEM Mid+')],self.all_channels[self.channel_names.index('GEM Mid-')]]
+        GEMLow_channels = [self.all_channels[self.channel_names.index('GEM Low+')],self.all_channels[self.channel_names.index('GEM Low-')]]
+        all_gem_channels = [*GEMTop_channels,*GEMMid_channels,*GEMLow_channels]
+        all_channels = [drift_channel, *all_gem_channels]
+
+        FLAG = 0
+        if mode == 'Voltage Divider':
+            ''' Acts similar to how a voltage divider would. Pass in value for drift, value for GEMs and desired ratios for GEMs
+            Example input: [2000,1500,1,0.8,0.5,0.3,0.2,0.1]
+            '''
+            drift_voltage = set_values[0]# Example: 2000 V to drift
+            GEM_max_voltage = set_values[1]# Example: 1500 V divided between the GEMs
+            #The example ratio of 1,0.8,0.5,0.3,0.2,0.1 returns 1500, 1200, 750, 450, 300, 150 V
+            #Ramp rates not controlled
+            GEM_voltage = []
+            self.Reset(all_channels)# reset any faults
+            for value in set_values[2:]:
+                if value>1: 
+                    FLAG = 1# Do not send values, these should be less than or eq to 1 to prevent overvoltage
+                GEM_voltage.append(GEM_max_voltage*value)#
+
+            if not FLAG: 
+                print('Confirm settings below before sending') #TODO: display ramp rates
+                print(f'Drift voltage   on channel {drift_channel}: {drift_voltage} V')
+                print(f'GEM Top voltage on channel {GEMTop_channels[0]} & {GEMTop_channels[1]}: {GEM_voltage[0]}, {GEM_voltage[1]} V')
+                print(f'GEM Mid voltage on channel {GEMMid_channels[0]} & {GEMMid_channels[1]}: {GEM_voltage[2]}, {GEM_voltage[3]} V')
+                print(f'GEM Low voltage on channel {GEMLow_channels[0]} & {GEMLow_channels[1]}: {GEM_voltage[4]}, {GEM_voltage[5]} V')
+                reply = input('If this is correct, enter: SEND')
+                if reply =='SEND':
+                    self.MPOD.SetTargetVoltage(drift_channel, drift_voltage)
+                    for idx, val in enumerate(GEM_voltage):
+                        self.MPOD.SetTargetVoltage(all_gem_channels[idx],val)
+                else: 
+                    FLAG = 1
+                    print('Cancelled - Voltages not sent')
+        elif mode == 'Individual Increments':
+            for idx, ch in enumerate(channels): 
+                    v_target = self.MPOD.GetTargetVoltage(ch)# get prior target
+                    self.MPOD.SetTargetVoltage(ch, v_target + v_to_increment[idx])#set new target
+        elif mode == 'Increment All':
+            '''Send fixed increment to all channels. 
+            Example: Increase by 50 V on drift and gem channels'''
+            channels = all_channels
+            v_to_increment = [set_values]*len(channels)#Single input value
+            self.RampMethod('Individual Increments', v_to_increment)
+
+        if not FLAG:#turn channels on if not flagged (and if channels are not currently on)    
+            for ch in channels:
+                if not self.MPOD.QueryPower(ch):
+                    self.MPOD.SetPower(ch, 1)
+                    #TODO: add monitor for status here 
+                    #monitor statuses while ramping. reset & resend cmds if trips
+
+    def RampTogether(self, channels = None, target_voltage = None, pass_to_GUI = False):
         '''
         Modes (pass to GUI): 
             False (default): Execute ramp
@@ -83,48 +162,54 @@ class CustomFx(DecorateAllMethods):
         #3) discretize using safe ramp rates
         #4) run fx
         # '''
+        #TODO: implement target voltage
         if channels is None:
             channels = self.active_channels
         targets, starting, maximum = [], [], []
-        # for ch in channels: 
-        #     targets.append(self.MPOD.GetTargetVoltage(ch))
-        #     starting.append(self.MPOD.QueryVoltage(ch))
-        #     maximum.append(self.MPOD.GetConfigMaxVoltage(ch, 'Terminal'))
-        # #TODO: add check for KILL_ENABLE to find limit for rampRate
-        # #TODO: add user input in initialization to set max rampRate
-        # #TODO: IMPORTANT: monitor for tripping and reset or turn off all channels
-        # # likely a stock setting - lots of behavior control bits available (see MIB file & manual)
-        # deltas, max_rates = [], []
-        # for i in range(len(targets)): 
-        #     deltas.append(targets[i] - starting[i])# desired dV
-        #     max_rates.append(min([self.max_voltage_ramp, 0.01*maximum[i]]))#[V/s], modify here!
-        #     #When kill_enabled, the maximum rate is 1% of maximum terminal voltage
-        # rate = min(max_rates)#[V/s] selected voltage rise rate for all channels
-        # max_idx = deltas.index(max(deltas))# location of maximum delta
-        # n_div = 10# number of steps to breakup ramp into (arbitrary, can be changed)
-        # thresh = 1 #[V] threshold for "close enough" to consider finished
-        # if pass_to_GUI: #return parameters for use in GUI
-        #     return [deltas, starting, rate, thresh, n_div]
-        # else: #Run commands now
-        #     for n in range(n_div):
-        #         for idx, ch in enumerate(channels):
-        #             subdelta = deltas[idx]/n_div #V interval at each step
-        #             self.MPOD.SetTargetVoltage(ch, starting[idx] + subdelta)
-        #             self.MPOD.SetVoltageRate(ch, rate)#only needs to be sent once for ISEG HV
-        #         time.sleep(0.1)
-        #         for idx, ch in enumerate(channels):
-        #             self.MPOD.SetPower(ch, 1)# Turn on HV
-        #             current_V, target_V = 0, thresh*10
-        #         while abs(current_V - target_V) > thresh:
-        #             current_V = self.MPOD.QueryVoltage(channels[max_idx])
-        #             target_V = self.MPOD.GetTargetVoltage(channels[max_idx])
-        #             #manual thresholding. probably better way to do this with querying ramp status
-        #             #waits until biggest change is completed
-        #             #TODO: figure out how to implement this without hanging GUI - multithread? 
-        #             #TODO: add GUI update in loop
-        #             time.sleep(0.1)
-        #             print('Target: ', target_V, '\nActual: ', current_V)
-        #     print('Ramp sequence is complete')    
+        for idx, ch in enumerate(channels): 
+            if target_voltage is None: 
+                targets.append(self.MPOD.GetTargetVoltage(ch))
+            else: 
+                targets.append(target_voltage[idx])
+            starting.append(self.MPOD.QueryVoltage(ch))
+            maximum.append(self.MPOD.GetConfigMaxVoltage(ch, 'Terminal'))
+        #TODO: add check for KILL_ENABLE to find limit for rampRate
+        #TODO: add user input in initialization to set max rampRate
+        #TODO: IMPORTANT: monitor for tripping and reset or turn off all channels
+        # likely a stock setting - lots of behavior control bits available (see MIB file & manual)
+        deltas, max_rates = [], []
+        for i in range(len(targets)): 
+            deltas.append(targets[i] - starting[i])# desired dV
+            max_rates.append(min([self.max_voltage_ramp, 0.01*maximum[i]]))#[V/s], modify here!
+            #When kill_enabled, the maximum rate is 1% of maximum terminal voltage
+        rate = min(max_rates)#[V/s] selected voltage rise rate for all channels
+        max_idx = deltas.index(max(deltas))# location of maximum delta
+        n_div = 10# number of steps to breakup ramp into (arbitrary, can be changed)
+        thresh = 1 #[V] threshold for "close enough" to consider finished
+        if pass_to_GUI: #return parameters for use in GUI
+            return [deltas, starting, rate, thresh, n_div]
+        else: #Run commands now
+            for n in range(n_div):
+                for idx, ch in enumerate(channels):
+                    subdelta = deltas[idx]/n_div #V interval at each step
+                    self.MPOD.SetTargetVoltage(ch, starting[idx] + subdelta)
+                    self.MPOD.SetVoltageRate(ch, rate)#only needs to be sent once for ISEG HV
+                    #TODO: is this the right voltage rate to set? or do I need to use SetModuleVoltageRate? 
+                time.sleep(0.1)
+                for idx, ch in enumerate(channels):
+                    self.MPOD.SetPower(ch, 1)# Turn on HV
+                    current_V, target_V = 0, thresh*10
+                #TODO: get ramping status here
+                while abs(current_V - target_V) > thresh:
+                    current_V = self.MPOD.QueryVoltage(channels[max_idx])
+                    target_V = self.MPOD.GetTargetVoltage(channels[max_idx])
+                    #manual thresholding. better way to do this with querying ramp status
+                    #waits until biggest change is completed
+                    #TODO: figure out how to implement this without hanging GUI - multithread? 
+                    #TODO: add GUI update in loop
+                    time.sleep(0.1)
+                    print('Target: ', target_V, '\nActual: ', current_V)
+            print('Ramp sequence is complete')    
         print('moved to GUI, still preliminary')
         breakpoint
 
@@ -134,17 +219,19 @@ class CustomFx(DecorateAllMethods):
         for ch in channels:
             self.MPOD.SetPower(ch, 2)#reset EmergencyOff
             self.MPOD.SetPower(ch, 10)#clear events in status
+        for m in self.modules:#manual states that channel events should be cleared before module events
+            self.MPOD.ClearModule(m)
 
     def RampAll(self, channels_to_ramp = None, ramp_vals = None):
         ''' 
         Default: Ramp all channels down to zero. 
         Otherwise use input ramp_values values
         '''
-        print(ramp_vals)
         if channels_to_ramp is None:
             channels_to_ramp = self.all_channels #keep all channels here! 
         if ramp_vals is None:
             ramp_vals = [[0]*len(channels_to_ramp)]*2
+        print('Ramp values:', ramp_vals)
         for idx, ch in enumerate(self.all_channels): 
             if ch in channels_to_ramp: 
                 self.MPOD.SetTargetVoltage(ch, ramp_vals[0][idx])
@@ -175,14 +262,22 @@ class CustomFx(DecorateAllMethods):
             if modules is None:
                     modules = self.modules # keep all channels
             if channels == self.all_channels: # read all channels together
+                idx=[idx for idx, value in enumerate(self.full_channel_list) if value in self.all_channels] 
                 i_rate, v_rate = [], []
                 i_limit = self.MPOD.GetAllCurrentLimits()
+                i_limit = [i_limit[i] for i in idx]
                 i_rate_tmp = self.MPOD.GetAllCurrentRates()
+                i_rate_tmp = [i_rate_tmp[i] for i in idx]
                 i_actual = self.MPOD.QueryAllCurrents()
+                i_actual = [i_actual[i] for i in idx]
                 v_target = self.MPOD.GetAllTargetVoltages()
+                v_target = [v_target[i] for i in idx]
                 v_rate_tmp = self.MPOD.GetAllVoltageRates()
+                v_rate_tmp = [v_rate_tmp[i] for i in idx]
                 v_actual = self.MPOD.QueryAllVoltages()
+                v_actual = [v_actual[i] for i in idx]
                 pwr_ch = self.MPOD.QueryAllPowers()
+                pwr_ch = [pwr_ch[i] for i in idx]
                 s=0
                 for idx in range(len(self.modules)):
                     s = s + len(self.channels[idx])-1 
@@ -212,21 +307,3 @@ class CustomFx(DecorateAllMethods):
             #TODO: add better handling and put an indicator on front panel
             #TODO: better as a dictionary or other struct? 
         
-                                
-
-
-'''
-#BITFIELD:
-
-"04 08 " /* outputFailureMaxCurrent, outputRampDown *
-04 (DEC) == 0100 (BIN)
-08 (DEC) == 1000 (BIN)
-outputFailureMaxCurrent = (5) AND bits 6 & 7
-outputRampDown = (12)
-BITS: 04 08 outputFailureMaxCurrent(5) outputRampDown(12)
-
-another example: 
-WIENER-CRATE-MIB::moduleStatus.ma0 = BITS: 00 EE 00 00 moduleIsNoSumError(8)
-moduleIsNoRamp(9) moduleSafetyLoopIsGood(10) moduleIsGood(12) moduleSupplyIsGood(13)
-moduleTemperatureIsGood(14)
-'''

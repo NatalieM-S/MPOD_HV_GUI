@@ -1,5 +1,5 @@
 from GUI import GUI
-#Testing GUI with no DAQ connected
+#Testing GUI 
 # make sure MIB file available at https://file.wiener-d.com/software/net-snmp/ is in the correct directory
 #REQUIREMENT:  WIENER-CRATE-MIB.txt must be located in /usr/share/snmp/mibs (Windows: C:\usr\share\snmp\mibs)
 

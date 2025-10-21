@@ -3,12 +3,12 @@ import dearpygui.dearpygui as dpg
 def CreateTable(row_names, width, kind, FX):
     with dpg.table(header_row = True, resizable=True, policy=dpg.mvTable_SizingFixedFit,row_background = True):
         columns = ['Ch', 'Target Input', 'Target', 'Actual', 'Status']
-        widths = [width//3, width, width, width, width//2]
+        widths = [width, width*3//4, width*2//3, width, width//2]
         for n, column_label in enumerate(columns):
             dpg.add_table_column(label = column_label, width_fixed= not (column_label == 'Status'), init_width_or_weight = widths[n])
         for i, row_label in enumerate(row_names):
             with dpg.table_row():
-                dpg.add_text(row_label)#channel
+                dpg.add_text(f'{row_label}:{FX.channel_names[i]}')#channel
                 dpg.add_input_double(default_value = 0, step=0, tag = f'{kind}Input{row_label}',callback = SendValue,user_data = FX)#target input
                 #TODO: send this input to machine when ramp button is pressed
                 #TODO: Figure out how to deal w extraneous values (dont send defaulted zeros when not desired to)
@@ -74,7 +74,7 @@ def SendValue(sender, app_data, user_data):
         ch = int(sender.split('Input')[1])
         idx2 = user_data.all_channels.index(ch)
         user_data.cmd_values[idx][idx2] = app_data
-        print(user_data.cmd_values)
+        print('SendInput cmd_values: ',user_data.cmd_values)
 
 def CreateIncrementButtons(FX, width):
     v_to_increment = 0#dpg.get_value('')
@@ -97,7 +97,7 @@ def UpdateRegistry(FX):
             try:
                 dpg.set_value(f'{i}_{n}_Source',FX.last_frame[n][i])
             except:
-                i
+                pass
 
 def module_enable(sender,app_data,user_data):
     FX,index,src= user_data

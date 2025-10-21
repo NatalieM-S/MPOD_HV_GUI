@@ -22,12 +22,14 @@ G.start_app()
 """
 
 class GUI:
-    def __init__(self, IP = '169.254.107.70', take_real_data = True):
+    def __init__(self, IP = '169.254.107.70', take_real_data = True, active_modules = [0],channel_names = ['Drift','GEM Top+','GEM Top-','GEM Mid+','GEM Mid-','GEM Low+','GEM Low-','None']):
         #TODO: add check if instrument is connected
         #TODO: add mib file to this repo and point to self
         self.warnings = ['This GUI is a work in progress, and has not been fully tested yet. Data Controls & Saving & File Path panels should function. \nInstrument control features are incomplete and likely buggy, but try it out! Send commands using Details tab. \nMany errors can be returned as warnings in the terminal. Please collect these in a text file if possible.']  # List of startup warnings to display on front
         self.IP = IP
         self.take_real_data = take_real_data  # True: Instrument data, False: synthesized data
+        self.active_modules = active_modules#disable control and data for all but these modules
+        self.channel_names = channel_names
         if not take_real_data:
             self.warnings.append('Dummy data plotted. Set take_real_data to True to plot real data')
         self.MPOD, self.FX = None, None #MPOD Class & functions object placeholders
@@ -54,6 +56,7 @@ class GUI:
         column_names = ['V', 'I']
         self.units_name = ['[V]', '[mA]'] # Units that are measured by columns
         self.column_names = ['t']
+        # for m in modules:
         for n in self.FX.all_channels:
             for i in range(len(column_names)):
                 self.column_names.append(column_names[i] + str(n))
@@ -89,6 +92,8 @@ class GUI:
 
     def stop_plot(self):
         if not self.take_real_data: self.run = 0 #TODO: remove this before deploying
+        self.run = 0
+
         self.loop_plot = False
         dt = time.monotonic() - self.startTime # Relative time (graph time)
         for ax in self.ax_set:
@@ -203,21 +208,18 @@ class GUI:
                     self.en[en_out] = data  
             self.link_plot(1)
 
-        elif source_id[0] == 'ENABLE': #module disable/enable
-            active_modules = []
-            m_out, ch_out = [], []
-            for m in self.FX.modules:
-                active_modules.append(dpg.get_value(f'ENABLE_{m}'))
-            for idx, val in enumerate(active_modules):
-                if val:
-                    m_out.append(self.FX.modules[idx])
-                    for ch in self.FX.channels[idx]:
-                        ch_out.append(ch)
-            self.FX.active_modules = m_out
-            self.FX.active_channels = ch_out
-            #TODO: SELECTING ONLY M1 INSTEAD SELECTS ONLY CH 1
-
-            # print(m_out,'+',ch_out)
+        # elif source_id[0] == 'ENABLE': #module disable/enable
+        #     active_modules = []
+        #     m_out, ch_out = [], []
+        #     for m in self.FX.modules:
+        #         active_modules.append(dpg.get_value(f'ENABLE_{m}'))
+        #     for idx, val in enumerate(active_modules):
+        #         if val:
+        #             m_out.append(self.FX.modules[idx])
+        #             for ch in self.FX.channels[idx]:
+        #                 ch_out.append(ch)
+        #     self.FX.active_modules = m_out
+        #     self.FX.active_channels = ch_out
 
     def update_sample_rate(self): # Check and set sample rate for future data points
         self.sample_rate = dpg.get_value('sample_rate')
@@ -236,7 +238,7 @@ class GUI:
 
     def create_data_task(self):
         self.MPOD = MPOD(IP = self.IP, mode = not self.take_real_data)
-        self.FX = CustomFx(self.MPOD, self.take_real_data)
+        self.FX = CustomFx(self.MPOD, self.take_real_data, self.active_modules, self.channel_names)
 
     def close(self):  # Cleanup save and close instrument
         #TODO: close on save & Protections!
@@ -264,6 +266,16 @@ class GUI:
             if not self.initialized:
                 dpg.configure_item(win, no_close = True, no_move = True, no_resize = True)       
         self.initialized = 1
+    def display_warnings(self):
+        #TODO: include warnings from other submodules too
+        warning = ''
+        for i in range(len(self.warnings)):
+            warning = warning + f' {i + 1}) ' + self.warnings[i] + '\n'
+        for i in range(len(self.MPOD.warnings)):
+            warning = warning + f' {i + 1}) ' + self.MPOD.warnings[i] + '\n'
+            dpg.set_item_label(f'Current warning(s):' + warning, tag = 'messages')#,wrap = round(sum(widths[0:3]) * 0.9))
+            dpg.bind_item_theme('messages', 'warning_text_theme')
+        
 
     def get_plot_data(self):
         # i_limit, i_rate, i_actual, v_target, v_rate, v_actual, pwr_crate, pwr_ch = self.FX.GetAllValues()
@@ -278,7 +290,7 @@ class GUI:
             data.append(i_actual[idx])
         return data
 
-    def update_loop(self):
+    def update_loop(self,update_data = True):
         currentTime = np.array(time.monotonic() - self.startTime)
         if self.loop_plot:
             # DAQ process
@@ -286,55 +298,57 @@ class GUI:
             if self.MPOD is None:
                 self.create_data_task()
             #TODO: Add check if datatask exists. if N, recreate, if Y, acquire data
-            instrument_data = self.get_plot_data()#takes data, updates table
-            append_data = np.array(instrument_data)
-            append_data = append_data * self.scale_factor 
-            if len(self.data_series) == 0:
-                self.data_series = np.copy(append_data)
-            else:
-                self.data_series = np.vstack((self.data_series, append_data))
-                
-            append_data = np.append(currentTime, append_data)
-            # Time series data
-            self.time_series = np.append(self.time_series, currentTime)
-            # Full data arrays for saving
-            if len(self.save_data) == 0:
-                self.save_data = np.copy([append_data])
-            else:
-                self.save_data = np.append(self.save_data, [append_data], axis = 0)
-                if len(self.time_series) > 1:
-                    for i in range(self.n_outputs):# Plot data for all plots
-                        dpg.set_value(self.column_names[i + 1] + 'tag1', [self.time_series, np.ndarray.tolist(self.data_series[:, i])])
+            if update_data:#keeps buttons live when sample rate is low
+                instrument_data = self.get_plot_data()#takes data, updates table
+                append_data = np.array(instrument_data)
+                append_data = append_data * self.scale_factor 
+                if len(self.data_series) == 0:
+                    self.data_series = np.copy(append_data)
+                else:
+                    self.data_series = np.vstack((self.data_series, append_data))
+                    
+                append_data = np.append(currentTime, append_data)
+                # Time series data
+                self.time_series = np.append(self.time_series, currentTime)
+                # Full data arrays for saving
+                if len(self.save_data) == 0:
+                    self.save_data = np.copy([append_data])
+                else:
+                    self.save_data = np.append(self.save_data, [append_data], axis = 0)
+                    if len(self.time_series) > 1:
+                        for i in range(self.n_outputs):# Plot data for all plots
+                            dpg.set_value(self.column_names[i + 1] + 'tag1', [self.time_series, np.ndarray.tolist(self.data_series[:, i])])
 
-            # Remove last element of plot data if length > max_data_size
-            if len(self.time_series) > self.max_data_size:
-                self.data_series = np.delete(self.data_series, 0, 0)
-                self.time_series = np.delete(self.time_series, 0)
+                # Remove last element of plot data if length > max_data_size
+                if len(self.time_series) > self.max_data_size:
+                    self.data_series = np.delete(self.data_series, 0, 0)
+                    self.time_series = np.delete(self.time_series, 0)
 
-            # Updates data size counter
-            self.data_size = len(self.save_data + 1) * (self.FX.n_channels + 1)
-            dpg.set_value('datasize', f'{self.data_size:.2E}')
-            #Refresh plot
-            self.link_plot(0)
+                # Updates data size counter
+                self.data_size = len(self.save_data + 1) * (self.FX.n_channels + 1)
+                dpg.set_value('datasize', f'{self.data_size:.2E}')
+                #Refresh plot
+                self.link_plot(0)
 
-            # Auto saving
-            if dpg.get_value("Autosave"):
-                self.n_autosave = dpg.get_value('NAutosave')
-                if len(self.save_data) > (self.autosave_counter * self.n_autosave):
-                    if self.autosave == 0:
-                        self.save_plot()
-                        self.autosave = 1
-                        self.autosave_counter = len(self.save_data) // self.n_autosave
-                    else:
-                        # Generate full file path
-                        val = dpg.get_value("saveFilename")
-                        full_file_path = pathlib.Path(self.savefile_path + "/" + val + '.csv')
-                        df = pd.DataFrame(self.save_data[-self.n_autosave - 1:-1, :])  # New data to save
-                        df.to_csv(full_file_path, mode = 'a', index = False, header = False)  # Append new data
-                        self.autosave = self.autosave + 1
-                        dpg.set_value('messages', f'Autosave #{self.autosave}, data saved to: ' + str(full_file_path))
-                        dpg.bind_item_theme('messages', 'text_theme')
-                        self.autosave_counter = self.autosave_counter + 1
+                # Auto saving
+                if dpg.get_value("Autosave"):
+                    self.n_autosave = dpg.get_value('NAutosave')
+                    if len(self.save_data) > (self.autosave_counter * self.n_autosave):
+                        if self.autosave == 0:
+                            self.save_plot()
+                            self.autosave = 1
+                            self.autosave_counter = len(self.save_data) // self.n_autosave
+                        else:
+                            # Generate full file path
+                            val = dpg.get_value("saveFilename")
+                            full_file_path = pathlib.Path(self.savefile_path + "/" + val + '.csv')
+                            df = pd.DataFrame(self.save_data[-self.n_autosave - 1:-1, :])  # New data to save
+                            df.to_csv(full_file_path, mode = 'a', index = False, header = False)  # Append new data
+                            self.autosave = self.autosave + 1
+                            dpg.set_value('messages', f'Autosave #{self.autosave}, data saved to: ' + str(full_file_path))
+                            dpg.bind_item_theme('messages', 'text_theme')
+                            self.autosave_counter = self.autosave_counter + 1
+            self.display_warnings()
 
     def GUI_ramp_together(self):
         [deltas, starting, rate, thresh, n_div] = self.FX.RampTogether(pass_to_GUI = True)
@@ -539,7 +553,7 @@ class GUI:
                 for idx, n in enumerate(self.FX.modules):
                     dpg.add_input_float(format="%.2g",source = f'{idx}_VRate_Source',readonly = True, width = widths[0]//3,step = 0)
 
-                #TODO: add updating to ramp rate value in text above
+                #TODO: add user input to update to ramp rate value in text above
             widget.CreateIncrementButtons(self.FX, widths[0])
             # with dpg.group(horizontal = True):
             #     dpg.add_text('Enable Control of Module #:')
@@ -631,14 +645,15 @@ class GUI:
                 dpg.add_button(label = 'Generate date string', callback = self.date_string, width = widths[0])
 
             # Display startup warnings, messages, and errors on GUI panel
-            if type(self.warnings) == type(['a']):
-                warning = ''
-                for i in range(len(self.warnings)):
-                    warning = warning + f' {i + 1}) ' + self.warnings[i]
-                dpg.add_text(f'{len(self.warnings)} startup warning(s):' + warning, tag = 'messages',wrap = round(sum(widths[0:3]) * 0.9))
-                dpg.bind_item_theme('messages', 'warning_text_theme')
-            else:
-                dpg.add_text(self.warnings, tag = 'messages')
+            with dpg.child_window(autosize_x = True, autosize_y = True):
+                if type(self.warnings) == type(['a']):
+                    warning = ''
+                    for i in range(len(self.warnings)):
+                        warning = warning + f' {i + 1}) ' + self.warnings[i]
+                    dpg.add_text(f'{len(self.warnings)} startup warning(s):' + warning, tag = 'messages',wrap = round(sum(widths[0:3]) * 0.9))
+                    dpg.bind_item_theme('messages', 'warning_text_theme')
+                else:
+                    dpg.add_text(self.warnings, tag = 'messages')
 
                 #TODO: enable backup data saving option
                 #dpg.set_exit_callback(self.close)  # Asks if user wants to save data on window close
@@ -653,9 +668,14 @@ class GUI:
         while dpg.is_dearpygui_running() and self.run:
             dpg.render_dearpygui_frame()
             if self.sample_rate == 0 or t_one > 1 / self.sample_rate:
-                self.update_loop()  # Core DAQ and plotting loop
+                self.update_loop(True)  # Core DAQ and plotting loop
                 t_zero = time.monotonic()
-            t_one = time.monotonic() - t_zero # For sample rate calc          
+            else: 
+                self.update_loop(False)
+            t_one = time.monotonic() - t_zero # For sample rate calc 
+            # else: self.update_loop(True)
+              
+                   
         self.close()
         dpg.destroy_context()
 
