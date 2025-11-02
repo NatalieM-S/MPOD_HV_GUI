@@ -2,6 +2,10 @@ import os
 import pexpect as px #for linux
 import subprocess #for windows
 import platform
+import time
+import traceback
+import inspect
+
 # Written by Natalie Mujica-Schwahn, last updated: 10/4/25
 class MPOD:
     r'''
@@ -15,8 +19,23 @@ class MPOD:
         self.IP = IP
         self.mibdir = MIBdir #or os.path.expanduser("~/.snmp/mibs")
         self.mode = mode#mode: 0, driver, 1, debug (not connected)
+        self.debug_mode = 0
         self.os = platform.system()#windows or linux
+        #If program will not start, check these environment variables below. They may need to be set in shell. 
+        # os.environ["MIBS"] = "+WIENER-CRATE-MIB"
+        # if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
+        #     os.environ["MIBDIRS"] = self.mibdir
+        # else: 
+            # raise RuntimeError(f"MIB file was not found in {self.mibdir}")
         self.warnings = []
+        self.gather_commands=0
+        self.gathered_commands = []
+        self.gathered_command_type = ''
+        self.last_cmd=''
+        if self.debug_mode == 1:
+            self.start_time = time.monotonic()
+            self.last_cmd={'All commands': [], 'All replies': [], 'Errors':[],'error time':[],'command time': []}
+        
         self.precision ='-Op .12 '#high precision creating problems on windows. older SNMP protocols do not support this option 
         #Test power on and precision 
         if not mode:
@@ -24,9 +43,17 @@ class MPOD:
                 self.precision = ''#try lower precision values for older SNMP protocols
                 if len(self.Send('get','sysMainSwitch.0'))<1:
                     self.WarnHandler('Crate is not connected or configured correctly')
-
+            if not self.QueryPowerCrate():
+                self.WarnHandler('Crate is off - powering on now, wait for system to respond')
+                self.SetPowerCrate(1)
+                time.sleep(1)
+                if self.QueryPowerCrate():#if power on was successful, wait for modules to respond
+                    while 'No Such Instance' in self.Send('walk','outputSwitch'):
+                        pass#time.sleep(0.5)
+                else: 
+                    self.WarnHandler('Crate did not turn on')
+                   
         self.n_channels = len(self.GetAllNames())
-        self.last_cmd=''
         ### FOR DEBUG ONLY: ###
         if mode: 
             d = {'i_limit':1.0123456789012, 'i_rate':2.1234567890123, 'i_actual':0.11234567890123, 'v_target':2000.1234567890123, 
@@ -37,99 +64,160 @@ class MPOD:
             for ch in d_pwr['channels']:
                 self.mimic[str(ch)] = dict(d)
         #######################
-        # os.environ["MIBS"] = "+WIENER-CRATE-MIB"
-        # if os.path.isfile(self.mibdir + "/WIENER-CRATE-MIB.txt"):
-        #     os.environ["MIBDIRS"] = self.mibdir
-        # else: 
-        #     raise RuntimeError(f"MIB file was not found in {self.mibdir}")
+       
         ##example command : "snmpget -v 2c -Op .12 -m +WIENER-CRATE-MIB -c guru 169.254.107.70 outputPower.u0"
     
     def Send(self,cmd_type = 'walk', cmd = ''):
         '''Base command struct and MPODCrate communication functions'''
         #result = subprocess.run([cmd],shell = True,capture_output = True)
-        if cmd_type == 'walk':#check connection
-            if cmd == '': #use lower precision
-                cmd = f"snmpwalk -v 2c -m +WIENER-CRATE-MIB -c public {self.IP} " + cmd
-            else: # require higher precision (if available)
-                cmd = f"snmpwalk -v 2c {self.precision}-m +WIENER-CRATE-MIB -c public {self.IP} " + cmd
-        elif cmd_type == 'set':
-            cmd = f"snmpset -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
-        elif cmd_type == 'get':
-            cmd = f"snmpget -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
+        n=[]
+        
+        original_cmd = cmd
+        if self.gather_commands:       
+            for i in range(len(inspect.stack())):
+                n.append(inspect.stack()[i].filename)
+            f=[i for i,f in enumerate(n) if __file__ not in f]
+            if 'GUI' in n[f[0]].split('/')[-1]:#check if sender is GUI, dont block if so
+                self.SendMultiple('pause')
+                self.Send(cmd_type,cmd)
+                self.SendMultiple('start')
+            else:
+                if len(self.gathered_command_type)>0:
+                    if self.gathered_command_type is not cmd_type:
+                        self.WarnHandler('Command type does not match, skipping')
+                    else: 
+                        self.gathered_commands.append(cmd)
+                else:         
+                    self.gathered_command_type = cmd_type
+                    self.gathered_commands.append(cmd)
         else:
-            self.WarnHandler(cmd_type + ' is invalid command type')
-        try:
-            if self.os == 'Windows':
-                result = subprocess.run(cmd.split(), capture_output = True, shell = True)
-                result = result.stdout
-            else: 
-                result = px.run(cmd)
-            self.last_cmd = cmd
-            result_parsed = result.decode().rstrip('\n').rstrip('\r')
-        except:# subprocess.CalledProcessError as err:
-            try: #reattempt
-                result_parsed = self.Send(cmd = cmd.split(' ')[-1])
-            except: 
-                self.WarnHandler(f"SNMP command failed. Command: {cmd})")#, Error: {err.stderr}")
-                result_parsed=None
-        return result_parsed#, result, cmd#, result.stderr 
+            if cmd_type == 'walk':#check connection
+                if cmd == '': #use lower precision
+                    cmd = f"snmpwalk -v 2c -m +WIENER-CRATE-MIB -c public {self.IP} " + cmd
+                else: # require higher precision (if available)
+                    cmd = f"snmpwalk -v 2c {self.precision}-m +WIENER-CRATE-MIB -c public {self.IP} " + cmd
+            elif cmd_type == 'set':
+                cmd = f"snmpset -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
+            elif cmd_type == 'get':
+                cmd = f"snmpget -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
+            else:
+                self.WarnHandler(cmd_type + ' is invalid command type')
+            try:
+                if self.os == 'Windows':
+                    result = subprocess.run(cmd.split(), capture_output = True, shell = True)
+                    result = result.stdout
+                else: 
+                    result = px.run(cmd)
+                result_parsed = result.decode().rstrip('\n').rstrip('\r')
+                if self.debug_mode == 0:
+                    self.last_cmd = cmd
+                else:
+                    self.last_cmd['All commands'].append(cmd_type + ': ' + original_cmd)
+                    self.last_cmd['All replies'].append(result_parsed)  
+                    self.last_cmd['command time'].append(time.monotonic()-self.start_time)          
+                
+            except Exception as ex:# subprocess.CalledProcessError as err:
+                try: #reattempt
+                    time.sleep(0.1)#brief delay to prevent overloading filedescriptor on linux
+
+                    result_parsed = self.Send(cmd_type, cmd.split(' ')[-1])
+                    if self.debug_mode:
+                        self.last_cmd['All commands'].append(cmd)
+                        self.last_cmd['All replies'].append(result_parsed)  
+                        self.last_cmd['command time'].append(time.monotonic()-self.start_time) 
+                    self.WarnHandler(f"SNMP command succesfully retried. Command: {cmd})")
+                except Exception as ex: 
+                    self.WarnHandler(f"SNMP command failed. Command: {cmd})")#, Error: {err.stderr}")
+                    result_parsed=None
+            return result_parsed#, result, cmd#, result.stderr 
     
     def ParseReply(self, reply, mode):
         if reply is None: 
             result = 0
             if 'array' in mode:
                 result = [0]*self.n_channels
-            self.WarnHandler(f'Value read error for {self.last_cmd}, zeros returned instead')
-        elif 'no such instance currently exists at this oid' in reply:
-            self.WarnHandler('Warning: Turn crate on')
-        else:
-            reply = reply.lower()#easier to match mixed cases this way
-            result = []
-            match mode:
-                case 'float':
-                    loc = reply.find('float:')
-                    result = float(reply[loc+6:-3])
-                case 'float array':
-                    for idx, k in enumerate(reply.split('float: ')):
-                        if idx > 0:                           
-                            result.append(float(k.split(' ')[0]))
-                case 'integer':
-                    loc = reply.find('integer: ')
-                    result = int(reply[loc+8:-3])
-                case 'integer array':
-                    for idx, k in enumerate(reply.split('integer: ')):
-                        if idx > 0:                           
-                            result.append(int(k.split(' ')[0]))
-                case 'string':
-                    #SPECIFICALLY FOR FINDING OUTPUT NAMES
-                    for k in reply.split('wiener-crate-mib::outputname.'):
-                        if len(k) > 0:
-                            loc = k.find('=')
-                            k = k[0:loc].strip().lstrip('u')
-                            result.append(int(k))
-                case 'binary':
-                    #SPECIFICALLY FOR ON/OFF, MAY NEED EXTENSION
-                    result = int(reply.split('(')[1].strip(')'))
-                case 'binary array':
-                    for idx, k in enumerate(reply.split('(')):
-                        if idx > 0:                           
-                            result.append(int(k.split(')')[0]))
-                case 'bits':
-                    reply=reply.split('bits: ')[1]
-                    result = [r for r in reply.split(' ') if len(r) == 2]
-                    # 'WIENER-CRATE-MIB::outputStatus.u101 = BITS: 04 00 40 outputFailureMaxCurrent(5) outputLowCurrentRange(17)
-                case 'bits array':
-                    for idx, bit in enumerate(reply.split('bits: ')):
-                        if idx > 0:
-                            result.append([r for r in bit.split(' ') if len(r) == 2])
-                case _:
-                    self.WarnHandler(f"mode: {mode} not supported")                    
+            self.WarnHandler(f'Value read error for {self.last_cmd}, zeros returned instead') 
+        else: 
+            if 'no such instance currently exists at this oid' in reply:
+                self.WarnHandler('Warning: Disconnected from crate')
+                result = None
+            else:
+                reply = reply.lower()#easier to match mixed cases this way
+                result = []
+                match mode:
+                    case 'float':
+                        loc = reply.find('float:')
+                        result = float(reply[loc+6:-3])
+                    case 'float array':
+                        for idx, k in enumerate(reply.split('float: ')):
+                            if idx > 0:                           
+                                result.append(float(k.split(' ')[0]))
+                    case 'integer':
+                        loc = reply.find('integer: ')
+                        result = int(reply[loc+8:-3])
+                    case 'integer array':
+                        for idx, k in enumerate(reply.split('integer: ')):
+                            if idx > 0:                           
+                                result.append(int(k.split(' ')[0]))
+                    case 'string':
+                        #SPECIFICALLY FOR FINDING OUTPUT NAMES
+                        for k in reply.split('wiener-crate-mib::outputname.'):
+                            if len(k) > 0:
+                                loc = k.find('=')
+                                k = k[0:loc].strip().lstrip('u')
+                                result.append(int(k))
+                    case 'binary':
+                        #SPECIFICALLY FOR ON/OFF, MAY NEED EXTENSION
+                        result = int(reply.split('(')[1].strip(')'))
+                    case 'binary array':
+                        for idx, k in enumerate(reply.split('(')):
+                            if idx > 0:                           
+                                result.append(int(k.split(')')[0]))
+                    case 'bits':
+                        reply=reply.split('bits: ')[1]
+                        result = [r for r in reply.split(' ') if len(r) == 2]
+                        # 'WIENER-CRATE-MIB::outputStatus.u101 = BITS: 04 00 40 outputFailureMaxCurrent(5) outputLowCurrentRange(17)
+                    case 'bits array':
+                        for idx, bit in enumerate(reply.split('bits: ')):
+                            if idx > 0:
+                                result.append([r for r in bit.split(' ') if len(r) == 2])
+                    case _:
+                        self.WarnHandler(f"mode: {mode} not supported")                    
         return result
 
     def WarnHandler(self,warning_text):
         self.warnings.append(warning_text)
+        if self.debug_mode: 
+            self.last_cmd['error time'].append(time.monotonic()-self.start_time)
+            self.last_cmd['Errors'].append(warning_text)
         print(warning_text)
         #TODO: pass these to front panel 
+
+    def SendMultiple(self,mode = 'end'):
+        ''' Usage Example: 
+        SendMultiple('start')
+        SetTargetVoltage(0,500)
+        SetTargetVoltage(1,1000)
+        SetPower(0,1)
+        SetPower(1,1)
+        SendMultiple('end')
+        TODO: issue-this will block GUI! 
+        '''
+        mode=mode.lower()
+        if mode == 'start':#Begin (or continue) listening to inputs
+            self.gather_commands = 1
+        elif mode == 'pause':#Stop listening, just pass inputs thru like normal
+            self.gather_commands = 0
+        elif mode == 'end':#Send then reset 
+            self.gather_commands = 0
+            self.Send(self.gathered_command_type, ' '.join(self.gathered_commands))
+            if self.gathered_command_type == 'get':
+                self.ParseReply()#not set up yet... 
+                #TODO: parse by command before clearing
+            
+            self.gathered_commands = []
+            self.gathered_command_type = ''
+               
 
     ###### MAIN FUNCTIONS: BASIC ONE CHANNEL GET/SET/QUERY (LIST FROM ISEG MANUAL TABLE 2)#######
     def SetTargetVoltage(self, channel, voltage):
@@ -405,7 +493,6 @@ class MPOD:
     ### ADDITIONAL FUCTIONS ####
     def GetAllNames(self):
         #Output all channel names in an array
-        #TODO: get module info
         if self.mode: 
             # 'WIENER-CRATE-MIB::outputName.u100 = STRING: 100 \\ WIENER-CRATE-MIB::outputName.u101 = STRING: 101'
             result = [0,1,2,100,101,102,200,201,202,300,301,302,500,501,502,600,601,602,800,801,802]
@@ -459,6 +546,7 @@ class MPOD:
         # else: 
         reply = self.Send('get', f"moduleRampSpeedVoltage.ma{module}")
         result = self.ParseReply(reply, 'float')
+        # v_nominal = self.GetConfigMaxVoltage()
         return result
 
     def GetModuleCurrentRate(self, module):
@@ -503,28 +591,17 @@ class MPOD:
     #note: in percentage of outputConfigMaxCurrent (but this doesnt agree with channel ramp rate... )
     #TODO: can set all at once? probably not... 
     ##### WORKS IN PROGRESS####    
-    def GetStatus(self, channel_or_module = None, mode = 'Crate'):
+    def GetStatus(self, channel_or_module = None, mode = 'Crate',quick = False):
         '''Modes: 
         'crate','channel','module','module event'
         Module Events are static (vs 'module' -> flags that are transient)
-        #TODO: Get this up and running - clearly important!! 
-        
-        Notes: Bitstrings will be harder to parse than text... likely hex
-        for best examples search BITS:
-                ***SEE MIB FILE****
-        Known statuses: 
-        outputEnableKill (13)
-        outputEmergencyOff (14)
-
-        There are more statuses with more complex behavior (see MPOD manual) such as:
-        outputFailureMaxCurrent(5) 
-        outputLowCurrentRange(17)
+                
         '''
-        print('Work in progress')
         if self.mode: 
             reply = 'WIENER-CRATE-MIB::outputStatus.u101 = BITS: 04 00 40 outputFailureMaxCurrent(5) outputLowCurrentRange(17)'
         else: 
             hex_length = 2 # default length for everything but channel
+            bit_length = 16
             if mode == 'crate':
                 reply = self.Send('get','sysStatus.0')
             elif mode == 'channel':
@@ -536,14 +613,19 @@ class MPOD:
                 reply = self.Send('get',f'outputStatus.ma{channel_or_module}')
             elif mode == 'module event':
                 reply = self.Send('get',f'moduleEventStatus.ma{channel_or_module}')
-        
+            else:
+                self.WarnHandler(f"Mode '{mode}' is not a valid input to GetStatus")
+
         parsed_reply = self.ParseReply(reply,'bits')
         while len(parsed_reply)<hex_length:
             parsed_reply.append('00')
-        status = self.ParseStatus(parsed_reply,mode,bit_length)
-        return status
+        if quick:
+            return self.ParseStatus(parsed_reply,mode,bit_length,quick)
+        else: 
+            [name,flag,desc,active_bits] = self.ParseStatus(parsed_reply,mode,bit_length,quick)  
+            return [name,flag,desc,active_bits]
 
-    def GetAllStatuses(self,mode):
+    def GetAllStatuses(self,mode,quick = False):
         hex_length = 2
         bit_length = 16
         if mode == 'module':
@@ -557,8 +639,7 @@ class MPOD:
         for p in parsed_reply: 
             while len(p)<hex_length:
                 p.append('00')
-            status.append = self.ParseStatus(p,mode,bit_length)
-        #TODO parse reply as dict? 
+            status.append(self.ParseStatus(p,mode,bit_length,quick))
         return status
 
     def TestConnection(self):
@@ -582,7 +663,7 @@ class MPOD:
             active_bits = []
             for idx, x in enumerate(binary_status):
                 if int(x):
-                    active_bits.append[idx]
+                    active_bits.append(idx)
             name = []
             flag = []
             desc = []
@@ -761,7 +842,7 @@ class MPOD:
                             name.append('I LIMIT')
                             flag.append('Current Limit Exceeded')
                             desc.append('Set if the current exceeds the value defined for the hardware current limit (Imax potentiometer). If the "Kill" option has been enabled for the module, the channel will be shut down.')
-            return [name, flag, desc] 
+            return [name, flag, desc, active_bits[0:bit_length]] 
            
     def QueryChannel(self, channel):
         r'''Get all channel info (Voltage, Current, On/Off Status)'''

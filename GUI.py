@@ -57,7 +57,7 @@ class GUI:
         self.units_name = ['[V]', '[mA]'] # Units that are measured by columns
         self.column_names = ['t']
         # for m in modules:
-        for n in self.FX.all_channels:
+        for n in self.FX.my_channels:
             for i in range(len(column_names)):
                 self.column_names.append(column_names[i] + str(n))
                 self.en.append(True)
@@ -273,7 +273,7 @@ class GUI:
             warning = warning + f' {i + 1}) ' + self.warnings[i] + '\n'
         for i in range(len(self.MPOD.warnings)):
             warning = warning + f' {i + 1}) ' + self.MPOD.warnings[i] + '\n'
-            dpg.set_item_label(f'Current warning(s):' + warning, tag = 'messages')#,wrap = round(sum(widths[0:3]) * 0.9))
+            dpg.set_item_label('messages',f'Current warning(s):' + warning)#,wrap = round(sum(widths[0:3]) * 0.9))
             dpg.bind_item_theme('messages', 'warning_text_theme')
         
 
@@ -281,7 +281,7 @@ class GUI:
         # i_limit, i_rate, i_actual, v_target, v_rate, v_actual, pwr_crate, pwr_ch = self.FX.GetAllValues()
         self.FX.GetAllValues()
         for kind in ['V', 'I']:
-            widget.SetTable(self.FX.all_channels, kind, self.FX)
+            widget.SetTable(self.FX.my_channels, kind, self.FX)
         v_actual = self.FX.last_frame[5]#data from MPOD.QueryVoltage
         i_actual = self.FX.last_frame[2]#data from MPOD.QueryCurrent
         data = []
@@ -426,7 +426,7 @@ class GUI:
             for idx, n in enumerate(self.FX.modules):
                 dpg.add_float_value(tag=f'{n}_VRate_Source', default_value=self.FX.last_frame[4][idx])
                 # dpg.add_float_value(tag=f'{idx}_IRate_Source', default_value=self.FX.last_frame[1][idx])
-            for i, row_label in enumerate(self.FX.all_channels):
+            for i, row_label in enumerate(self.FX.my_channels):
                 for n in range(len(self.FX.last_frame)):
                     try:
                         dpg.add_float_value(tag = f'{i}_{n}_Source',default_value = self.FX.last_frame[n][i])
@@ -466,7 +466,7 @@ class GUI:
                                 if x < len(self.column_names):
                                     dpg.add_checkbox(label = f'{self.column_names[x]}', tag = f'enable_{self.column_names[x]}', default_value = True, callback = self.checkbox_TF)# example: V0 & enable_V0
                                     x = x + 1
-                            dpg.add_text(f'u{self.FX.all_channels[y]}')
+                            dpg.add_text(f'u{self.FX.my_channels[y]}')
                             y = y + 1  
 
             dpg.add_button(label = "Disable (plotting) all", tag = "ClearChecks", callback = self.set_all_checks, user_data = False, width = widths[0])
@@ -507,8 +507,8 @@ class GUI:
                         with dpg.group(tag = f"en_data_group{tab_set}", horizontal = False):
                             for N in range(N_ch_per_tab[tab_set]):#repeat N 
                                 with dpg.group(horizontal = True):
-                                    dpg.add_text(f'Channel {self.FX.all_channels[y]}')
-                                    dpg.add_button(label = 'Enabled', tag = f'enable_data_{self.FX.all_channels[y]}',callback = widget.module_enable,user_data = [self.FX,y,'channel'])
+                                    dpg.add_text(f'Channel {self.FX.my_channels[y]}')
+                                    dpg.add_button(label = 'Enabled', tag = f'enable_data_{self.FX.my_channels[y]}',callback = widget.module_enable,user_data = [self.FX,y,'channel'])
                                     dpg.bind_item_theme(dpg.last_item(),'green_theme')
                                 y = y + 1  
             # dpg.add_separator()
@@ -591,11 +591,11 @@ class GUI:
                     with dpg.group(horizontal = True):
                         dpg.add_text("Voltage Control (in V)")
                         # dpg.add_button("Send All Input Voltages", callback = self.FX., small = True)
-                    widget.CreateTable(self.FX.all_channels, widths[3]*0.9//4, "V", self.FX)
+                    widget.CreateTable(self.FX.my_channels, widths[3]*0.9//4, "V", self.FX)
 
                 with dpg.child_window(width=widths[3], height=heights[2]):
                     dpg.add_text("Current Control (in mA)")
-                    widget.CreateTable(self.FX.all_channels, widths[3]*0.9//4, "I", self.FX)
+                    widget.CreateTable(self.FX.my_channels, widths[3]*0.9//4, "I", self.FX)
                 #TODO: cleanup sizing of children, maybe use padding values
                 #TODO: add indicator lines on plots to show target voltage(s)
      
@@ -612,7 +612,7 @@ class GUI:
                 w = [widths[1]//len(columns)]*len(columns)
                 for n, column_label in enumerate(columns):
                     dpg.add_table_column(label = column_label, width_fixed= not (column_label == 'Status'), init_width_or_weight = w[n])
-                for i, row_label in enumerate(self.FX.all_channels):
+                for i, row_label in enumerate(self.FX.my_channels):
                     with dpg.table_row():
                         for n in range(len(columns)):
                             try:

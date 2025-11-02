@@ -29,7 +29,7 @@ def SetTable(row_names, kind, FX):
     elif kind == 'I':
         vals = FX.last_frame[0:3] #i_limit, i_rate, i_actual
     # for n, row_label in enumerate(FX.active_channels):#prev row_names
-    for n, row_label in enumerate(FX.all_channels):
+    for n, row_label in enumerate(FX.my_channels):
         dpg.set_value(f'{kind}Set{row_label}', f'{vals[0][n]:.5g}') 
         dpg.set_value(f'{kind}Actual{row_label}', f'{vals[2][n]:.5g}')
         #TODO: check sizing of status column (and other columns) adjust w window
@@ -72,7 +72,7 @@ def SendValue(sender, app_data, user_data):
         # FX = user_data
         idx = 0 + (sender[0] == 'I') #V = 0, I  = 1
         ch = int(sender.split('Input')[1])
-        idx2 = user_data.all_channels.index(ch)
+        idx2 = user_data.my_channels.index(ch)
         user_data.cmd_values[idx][idx2] = app_data
         print('SendInput cmd_values: ',user_data.cmd_values)
 
@@ -92,8 +92,8 @@ def CreateIncrementButtons(FX, width):
 def UpdateRegistry(FX):
     for idx, n in enumerate(FX.modules):
         dpg.set_value(f'{n}_VRate_Source', FX.last_frame[4][idx])
-    for i, row_label in enumerate(FX.all_channels):
-        for n in range(len(FX.all_channels)):
+    for i, row_label in enumerate(FX.my_channels):
+        for n in range(len(FX.my_channels)):
             try:
                 dpg.set_value(f'{i}_{n}_Source',FX.last_frame[n][i])
             except:
@@ -122,7 +122,7 @@ def module_enable(sender,app_data,user_data):
                 dpg.bind_item_theme(child,'green_theme' if new_status else 'red_theme')
                 dpg.set_item_label(child,'Enabled' if new_status else 'Disabled')
     else: #src is 'channel'
-        channel = FX.all_channels[index]
+        channel = FX.my_channels[index]
         if channel//100 in FX.active_modules:
             if channel in FX.active_channels:
                 FX.active_channels.remove(channel)
