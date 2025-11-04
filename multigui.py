@@ -1,42 +1,35 @@
-import multiprocessing
-import time
 import dearpygui.dearpygui as dpg
-from plotsGUI import plotsGUI
+import multiprocessing
+from voltageGUI import voltageGUI 
+from plotsGUI import plotsGUI 
+#TODO: CSVs (highly requested)! 
+#TODO: FIX POWER CYCLE HANGING PLOTGUI
+#TODO: option to get status on front panel
+#TODO: look at status() calls to snmp and pexpect.spawn ocnsideriations
+#TODO: Confirmation for voltage ramp down and power crate off and send all values
+#Load voltages from previous use
+#TODO: power on hangs plot
+#TODO: ramp all down button needs to override everything
 
-# The function to run in the first process
-def first_dpg_instance():
-    g=plotsGUI()
+
+from Driver.MPODClass import MPOD
+
+def start_gui1():
+    G = voltageGUI()
+    G.start_app()
+
+def start_gui2():
+    g=plotsGUI(take_real_data=True)
     g.start_app()
-    # dpg.create_context()
-    # with dpg.window(label="Window 1", tag="window1", width=300, height=200):
-    #     dpg.add_text("This is the first DPG instance.")
-    # dpg.create_viewport(title='DPG Instance 1')
-    # dpg.setup_dearpygui()
-    # dpg.show_viewport()
-    # dpg.start_dearpygui()
-    # dpg.destroy_context()
 
-# The function to run in the second process
-def second_dpg_instance():
-    g2=plotsGUI()
-    g2.start_app()
-    # dpg.create_context()
-    # with dpg.window(label="Window 2", tag="window2", width=300, height=200):
-    #     dpg.add_text("This is the second DPG instance.")
-    # dpg.create_viewport(title='DPG Instance 2')
-    # dpg.setup_dearpygui()
-    # dpg.show_viewport()
-    # dpg.start_dearpygui()
-    # dpg.destroy_context()
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
 
-if __name__ == "__main__":
-    # Create and start the processes
-    process1 = multiprocessing.Process(target=first_dpg_instance)
-    process2 = multiprocessing.Process(target=second_dpg_instance)
+    p1 = multiprocessing.Process(target=start_gui1)
+    p2 = multiprocessing.Process(target=start_gui2)
+ 
+    p1.start()
+    p2.start()
 
-    process1.start()
-    process2.start()
-
-    # Wait for both processes to complete
-    process1.join()
-    process2.join()
+    p1.join()
+    p2.join()

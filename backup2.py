@@ -26,12 +26,12 @@ for ch in FX.my_channels:# Set power on
     M.SetPower(ch,1)
 top_voltage = []
 for ch in FX.my_channels:
-    top_voltage.append(M.QueryVoltage(ch))
+    top_voltage.append(M.GetVoltage(ch))
 
 FX.RampAll() #default is to ramp all channels to zero
 bottom_voltage = []
 for ch in FX.my_channels:
-    bottom_voltage.append(M.QueryVoltage(ch))
+    bottom_voltage.append(M.GetVoltage(ch))
 print('Voltages at the top: ', top_voltage, '\nVoltages at the bottom:', bottom_voltage)
 
 #Setup to ramp two channels together

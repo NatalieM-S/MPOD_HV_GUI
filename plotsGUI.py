@@ -17,7 +17,7 @@ G.start_app()
 """
 
 class plotsGUI:
-    def __init__(self, IP = '169.254.107.70', take_real_data = True, active_modules = [0],channel_names = ['Drift','GEM Top+','GEM Top-','GEM Mid+','GEM Mid-','GEM Low+','GEM Low-','None']):
+    def __init__(self, IP = '169.254.107.70', take_real_data = True, active_modules = [0],channel_names = ['Cathode','GEM Top+','GEM Top-','GEM Mid+','GEM Mid-','GEM Low+','GEM Low-','None'],MPOD = None,FX = None):
         self.warnings = ['This GUI is a work in progress. Startup delay is 5-60 seconds before plotting rate stabilizes. Saving & File Path panel has been debugged - working!. Autosaving recommended.']  # List of startup warnings to display on front
         self.IP = IP
         self.take_real_data = take_real_data  # True: Instrument data, False: synthesized data
@@ -28,7 +28,7 @@ class plotsGUI:
         self.channel_names = channel_names
         if not take_real_data:
             self.warnings.append('Dummy data plotted. Set take_real_data to True to plot real data')
-        self.MPOD, self.FX = None, None #MPOD Class & functions object placeholders
+        self.MPOD, self.FX = MPOD, FX #MPOD Class & functions object placeholders
         self.create_data_task()
 
         # Initialize  vars for later use
@@ -72,12 +72,6 @@ class plotsGUI:
         self.datestr = f"{t.tm_mon}_{t.tm_mday}_{t.tm_year}_{t.tm_hour}-{t.tm_min}-{t.tm_sec}"
         dpg.set_value('saveFilename', self.datestr)
 
-    # def test_theme(self,style,vals,cat):
-    #     with dpg.theme() as test_theme:
-    #         with dpg.theme_component(dpg.mvAll):
-    #             dpg.add_theme_style(style,*vals,category=cat)
-    #     dpg.bind_theme(test_theme)
-
     def start_plot(self):
         if not self.loop_plot:  # Only runs if plot is not already started
             self.loop_plot = True
@@ -96,8 +90,8 @@ class plotsGUI:
                 self.tag_set.append(line_name)
 
     def stop_plot(self):
-        if not self.take_real_data: self.run = 0 #TODO: remove this before deploying
-        self.run = 0
+        # if not self.take_real_data: self.run = 0 #TODO: remove this before deploying
+        # self.run = 0
 
         self.loop_plot = False
         dt = time.monotonic() - self.startTime # Relative time (graph time)
@@ -182,28 +176,11 @@ class plotsGUI:
 
     def link_plot(self, send, data = 0):  
         # Update plots to reflect self.en visibility list 
-        # self.flag = send#swaps function every other frame
         if send == 0:  # Default axis scaling
             for idx, ax in enumerate(self.ax_set):
                 # dpg.fit_axis_data('y_axis' + ax)
                 rng = [self.limit_vals[1]-self.limit_vals[0],self.limit_vals[3]-self.limit_vals[2]]
                 dpg.set_axis_limits('y_axis'+ax,self.limit_vals[0+idx*2]-rng[idx]*0.05,self.limit_vals[1+idx*2]+rng[idx]*0.05)
-        if send == 5: 
-            for idx, ax in enumerate(self.ax_set):
-                ax_size = dpg.get_axis_limits('y_axis'+ax)
-                n_ticks,max_width,precision = 10,5,3
-                ticks = []
-                for n in range(n_ticks):
-                    value = ax_size[0]+n*(ax_size[1]-ax_size[0]/(n_ticks-1))
-                    # Pad the string with spaces to the left to reach max_width
-                    if idx == 1:
-                        label = f"{value:{max_width}.{precision}f}" 
-                    else: 
-                        label = f"{value:{max_width}.{precision}e}"
-                    ticks.append((label, value))
-                print(ax_size)
-                print(ticks)
-                dpg.set_axis_ticks('y_axis'+ax,tuple(ticks))
 
         if send == 1:  # Show/hide traces
             for i in range(1, len(self.column_names)):
@@ -248,8 +225,10 @@ class plotsGUI:
             dpg.set_value('sample_in_seconds', 'Data sampled as fast as possible')
 
     def create_data_task(self):
-        self.MPOD = MPOD(IP = self.IP, mode = not self.take_real_data)
-        self.FX = CustomFx(self.MPOD, self.take_real_data, self.active_modules, self.channel_names)
+        if self.MPOD is None:
+            self.MPOD = MPOD(IP = self.IP, mode = not self.take_real_data)
+        if self.FX is None:
+            self.FX = CustomFx(self.MPOD, self.take_real_data, self.active_modules, self.channel_names)
 
     def close(self):  # Cleanup save and close instrument
         if len(self.save_data) > 0:
@@ -270,10 +249,10 @@ class plotsGUI:
             dpg.bind_item_theme('messages', 'warning_text_theme')
 
     def get_plot_data(self):
-        if self.take_real_data:
-            v_actual = self.MPOD.QueryAllVoltages()#Voltage data
-            i_actual = self.MPOD.QueryAllCurrents()#Current data
-        else: 
+        if self.take_real_data and int(self.MPOD.GetPowerCrate()):
+            v_actual = self.MPOD.GetAllVoltages()#Voltage data
+            i_actual = self.MPOD.GetAllCurrents()#Current data
+        else: #dummy data
             v_actual = [-0.101010, 0,1,2,3,4,5,6,7,8,9,10]
             i_actual = [0,-1.512353251E-3,2.152351325E-3,3E-6,-4E-6,5E-6,6E-6,7E-6,8E-6,9E-6,10.13525E-6]
         data = [None] * (len(self.FX.channel_locs)*2) # Create a result list of the correct size
@@ -287,8 +266,8 @@ class plotsGUI:
             # DAQ process
             if self.MPOD is None:
                 self.create_data_task()
-            update_data = True#self.MPOD.QueryPowerCrate()
-            if update_data:#keeps buttons live when sample rate is low
+            update_data = True#self.MPOD.GetPowerCrate()
+            if update_data and self.MPOD.initialized:#keeps buttons live when sample rate is low
                 instrument_data = self.get_plot_data()#takes data, updates table
                 append_data = np.array(instrument_data)
                 append_data = append_data * self.scale_factor 
@@ -341,21 +320,19 @@ class plotsGUI:
                             self.autosave_counter = self.autosave_counter + 1
             self.display_warnings()
 
-
     ############################INITALIZATION###########################    
     def start_app(self):
         m = get_monitors()
         edge = 1/2
         self.screensize = round(m[0].width * edge), round(m[0].height * edge)#only looks at 1st screen. should work on windows & mac too.
         # Sub-window widths & heights as fraction of detected screen height
-        heights = [2*round(self.screensize[1]*x) for x in [self.winscale[1], 1-self.winscale[1]]] 
+        heights = [round(self.screensize[1]*x)*2 for x in [self.winscale[1], 1-self.winscale[1]]] 
         widths = [round(self.screensize[0]*x) for x in [1-self.winscale[0], self.winscale[0]]]  
         
         # Create all displays
         dpg.create_context()
         dpg.create_viewport(title = 'MPOD Crate HV DAQ', width = widths[0]+widths[1], height = heights[0]+heights[1],x_pos = 0, y_pos =0,resizable = True)
         dpg.setup_dearpygui()
-        # dpg.show_metrics()
         # Display options (font, colors, sizes)
         with dpg.font_registry():  # Set global font
             font_file_name = 'Vera.ttf'
@@ -385,9 +362,6 @@ class plotsGUI:
                 dpg.add_theme_color(dpg.mvThemeCol_Button, (125, 125, 125))
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (0, 0, 0))
 
-        dpg.add_file_dialog(directory_selector = True, show = False, tag = "file_dialog_id", width = heights[0],
-        height=heights[0] // 2, callback = self.user_selected_filepath)
-
         #### Testing padding adjustments #####
         pad_size = [5,10]
         with dpg.theme() as global_theme:
@@ -403,10 +377,11 @@ class plotsGUI:
                 # dpg.add_theme_style(dpg.mvPlotStyleVar_TickPadding, 5, 10, category=dpg.mvThemeCat_Plots)
         with dpg.theme() as plot1_theme:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_style(dpg.mvPlotStyleVar_LabelPadding, pad_size[0]*5,pad_size[0], category=dpg.mvThemeCat_Plots) 
+                dpg.add_theme_style(dpg.mvPlotStyleVar_LabelPadding, pad_size[0]*3,pad_size[0], category=dpg.mvThemeCat_Plots) 
                 
         dpg.bind_theme(global_theme)
-        
+        dpg.add_file_dialog(modal = True,directory_selector = True, show = False, tag = "file_dialog_id", width = heights[0],height=heights[0] // 2, callback = self.user_selected_filepath)
+        #TODO: Get save strings and warnings to display properly on front panel 
 
         ########## CONTROLS WINDOW ############### prior width: widths[0]
         with dpg.window(label = "Controls", height = heights[1]*2, width = widths[1], pos = (0, heights[0]), tag = "controller",no_move=True,no_close=True,no_title_bar = True,no_resize=True):
@@ -438,33 +413,9 @@ class plotsGUI:
         ########## MAIN WINDOW ###############
         # with dpg.window(label = "Live Graph", height = heights[0], width = widths[1], pos = (0, 0), horizontal_scrollbar = True, tag = 'plotter', no_title_bar = True):
         for w in 0.5, 0.5: widths.append(int(widths[1]*w)) #new container sizes w margin for padding
-        for h in 0.5, 0.5: heights.append(int(heights[0]*h*0.95))
-        ### SETTINGS TAB: ###
-        ### FUNCTIONS CONTROL TAB ########
-        # with dpg.group(horizontal = False, parent = 'TabC'):
-            
-        #     # with dpg.group(horizontal = True):
-        #     dpg.add_text('Voltage Ramping Functions:')
-        #     dpg.add_button(label = "Ramp Together (WORK IN PROGRESS)", callback = self.GUI_ramp_together, user_data = None, width = widths[0])
-        #         # dpg.add_text(f'Ramps all channels at proportional ramp rates via N discrete steps')
-        #     with dpg.group(horizontal = True):
-        #         dpg.add_button(label = "Ramp Selected to Inputs", callback = lambda: self.FX.RampAll(self.FX.active_channels, self.FX.cmd_values), user_data = None, width = widths[0])
-                
-        #         # dpg.add_text(f'Ramps all channels at set ramp rates: {self.FX.last_frame[4]} V/s')
-            
-        #     dpg.add_button(label = "Ramp All to Zero", callback = self.FX.RampAll, user_data = None, width = widths[0])
-        #     dpg.add_text(f"Module ramp rates [V/s]:")
-        #     with dpg.group(horizontal = True):
-        #         for idx, n in enumerate(self.FX.modules):
-        #             dpg.add_input_float(format="%.2g",source = f'{idx}_VRate_Source',readonly = True, width = widths[0]//3,step = 0)
+        for h in 0.5, 0.5: heights.append(int(heights[0]*h*0.95))  
 
-        #     widget.CreateIncrementButtons(self.FX, widths[0])
-        #     dpg.add_separator()
-        #     dpg.add_button(label = 'Fault Reset', tag = 'rst', callback = self.FX.Reset)
-        #     dpg.add_text('still testing many other settings.... ')
-        #     #TODO: add CSV drag & drop input option
-
-            ###### MAIN TAB ###########
+        ###### MAIN TAB ###########
         ### MAIN/PLOTS TAB  ####
         with dpg.window(label = "Live Graph", height = heights[0], width = widths[1], pos = (0, 0), horizontal_scrollbar = True, tag = 'plotter', no_title_bar = True,no_move=True,no_close=True,no_resize=True):
             with dpg.group():#horizontal=True):#, parent = 'plotter'):#'Tab1'):
@@ -500,33 +451,12 @@ class plotsGUI:
             #         widget.CreateTable(self.FX.my_channels, widths[3]*0.9//4, "I", self.FX)
                 #TODO: add indicator lines on plots to show target voltage(s)
      
-            ##### INSTRUMENT INFO TAB ##########
-        #     img_path = str(pathlib.Path(__file__).parent.resolve()) + '/' + 'info.png'
-        #     im_width, im_height, im_channels, im_data = dpg.load_image(img_path)
-        #     with dpg.texture_registry(show = False):
-        #         dpg.add_static_texture(width = im_width, height = im_height, default_value = im_data, tag = "info")
-        #         dpg.add_text("Basic module specs:", parent = 'Tab3')
-        #         dpg.add_image("info", parent = 'Tab3')
-        # with dpg.group(parent = 'DebugTab'):
-        #     with dpg.table(header_row = True, resizable=True, policy=dpg.mvTable_SizingFixedFit,row_background = True):
-        #         columns = ['i_limit', 'i_rate', 'i_actual', 'v_target', 'v_rate', 'v_actual', 'pwr_crate', 'pwr_ch']
-        #         w = [widths[1]//len(columns)]*len(columns)
-        #         for n, column_label in enumerate(columns):
-        #             dpg.add_table_column(label = column_label, width_fixed= not (column_label == 'Status'), init_width_or_weight = w[n])
-        #         for i, row_label in enumerate(self.FX.my_channels):
-        #             with dpg.table_row():
-        #                 for n in range(len(columns)):
-        #                     try:
-        #                         dpg.add_input_float(source = f'{i}_{n}_Source',step = 0,readonly=True)
-        #                     except:
-        #                         dpg.add_text('NaN')#set target
         ########## SAVE & FILE PATH WINDOW ###############
         # with dpg.window(label = "Saving & File Path", height = heights[1], width = self.screensize[0], pos = (0, heights[0]), tag = 'saver'):
         dpg.bind_item_theme('Plot1',plot1_theme)
         with dpg.group(parent = 'TabB'):
             with dpg.group(horizontal = True):
-                dpg.add_button(label = "Save", callback = self.save_plot, user_data = self.savefile_path,
-                width = 100)
+                dpg.add_button(label = "Save", callback = self.save_plot, user_data = self.savefile_path,width = 100)
                 dpg.add_checkbox(label = 'Allow Overwrite', tag = 'enable_overwrite', default_value = False)
                 dpg.add_checkbox(label = 'Autosave', tag = 'Autosave', default_value = False,
                 callback = lambda: dpg.disable_item('NAutosave') if dpg.get_value('Autosave') else dpg.enable_item('NAutosave'))
@@ -543,7 +473,7 @@ class plotsGUI:
                 dpg.add_button(label = 'Generate date string', callback = self.date_string, width = widths[0])
 
             # Display startup warnings, messages, and errors on GUI panel
-            with dpg.child_window():#autosize_x = True, autosize_y = True):
+            with dpg.child_window(autosize_x = True, autosize_y = True):
                 if type(self.warnings) == type(['a']):
                     warning = ''
                     for i in range(len(self.warnings)):
@@ -553,26 +483,24 @@ class plotsGUI:
                 else:
                     dpg.add_text(self.warnings, tag = 'messages')
 
-            dpg.set_exit_callback(self.close)  # Asks if user wants to save data on window close
+            # dpg.set_exit_callback(self.close)  # Asks if user wants to save data on window close
             # dpg.set_viewport_resize_callback(callback = self.resizer)
-
         ############ END APP CONFIG SETUP ########                
         # DearPyGUI window handle functions
         dpg.show_viewport()
-        # dpg.maximize_viewport()
         t_zero = time.monotonic()  # For sample rate calc
         t_one = 0 # For sample rate calc
         while dpg.is_dearpygui_running() and self.run:
             dpg.render_dearpygui_frame()
-            if self.sample_rate == 0 or t_one > 1 / self.sample_rate:
-                self.update_loop(True)  # Core DAQ and plotting loop
-                t_zero = time.monotonic()
-            else: 
-                self.update_loop(False)
-            t_one = time.monotonic() - t_zero # For sample rate calc                               
+            # if self.sample_rate == 0 or t_one > 1 / self.sample_rate:
+            self.update_loop(True)  # Core DAQ and plotting loop
+                # t_zero = time.monotonic()
+            # else: 
+                # self.update_loop(False)
+            # t_one = time.monotonic() - t_zero # For sample rate calc                               
         # self.close()
         dpg.destroy_context()
 
-g = plotsGUI(take_real_data = False) 
-g.start_app()
-# plotsGUI
+if __name__ == '__main__':
+    g = plotsGUI(take_real_data = True)
+    g.start_app()

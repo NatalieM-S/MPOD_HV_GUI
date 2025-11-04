@@ -7,7 +7,7 @@ M=MPOD(IP = '169.254.107.70', mode = 0, MIBdir = r"C:\usr\share\snmp\mibs")
 
 #Turn Crate On
 M.SetPowerCrate(1)
-x = M.QueryPowerCrate()
+x = M.GetPowerCrate()
 print('Crate power state: ', x)
 
 x = M.GetAllNames()
@@ -29,11 +29,11 @@ x = M.GetCurrentLimit(ch)
 print('Set Current Limit: ', x, ' mA')
 
 
-x = M.QueryVoltage(ch,'Sense')
-y = M.QueryVoltage(ch,'Terminal')
+x = M.GetVoltage(ch,'Sense')
+y = M.GetVoltage(ch,'Terminal')
 print('Voltages (Sense, Terminal)',x,y, ' V')
 
-x = M.QueryCurrent(ch)
+x = M.GetCurrent(ch)
 print('Actual Current: ', x, ' mA')
 
 x = M.GetConfigMaxVoltage(ch,'Sense')
@@ -45,7 +45,7 @@ print('Max Current ', x, ' mA')
 
 power_state_to_set = 0 #Turned off initially for safety
 M.SetPower(ch, power_state = power_state_to_set)
-x = M.QueryPower(ch)
+x = M.GetPower(ch)
 print('Power state of channel: ', x)
 
 voltage_ramprate_to_set = 1 #[V/s]

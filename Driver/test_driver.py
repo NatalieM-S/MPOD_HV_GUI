@@ -13,11 +13,11 @@ x = M.GetCurrentLimit(ch)
 print('Current Limit: ', x, ' mA')
 
 
-x = M.QueryVoltage(ch,'Sense')
-y = M.QueryVoltage(ch,'Terminal')
+x = M.GetVoltage(ch,'Sense')
+y = M.GetVoltage(ch,'Terminal')
 print('Voltages (Sense, Terminal)',x,y)
 
-x = M.QueryCurrent(ch)
+x = M.GetCurrent(ch)
 print('Current ', x)
 
 x = M.GetConfigMaxVoltage(ch,'Sense')
@@ -28,7 +28,7 @@ x = M.GetConfigMaxCurrent(ch)
 print('Max Current ', x)
 
 M.SetPower(ch, power_state = 0)
-x = M.QueryPower(ch)
+x = M.GetPower(ch)
 print('Power ', x)
 
 M.SetVoltageRate(ch, 0.1, direction =  'Rise')
@@ -41,5 +41,5 @@ x = M.GetAllNames()
 print('Module names ', x)
 
 M.SetPowerCrate(1)
-x = M.QueryPowerCrate()
+x = M.GetPowerCrate()
 print('Crate power state ', x)

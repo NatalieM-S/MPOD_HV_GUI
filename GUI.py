@@ -282,8 +282,8 @@ class GUI:
         self.FX.GetAllValues()
         for kind in ['V', 'I']:
             widget.SetTable(self.FX.my_channels, kind, self.FX)
-        v_actual = self.FX.last_frame[5]#data from MPOD.QueryVoltage
-        i_actual = self.FX.last_frame[2]#data from MPOD.QueryCurrent
+        v_actual = self.FX.last_frame[5]#data from MPOD.GetVoltage
+        i_actual = self.FX.last_frame[2]#data from MPOD.GetCurrent
         data = []
         for idx in range(len(i_actual)):
             data.append(v_actual[idx])
@@ -371,9 +371,9 @@ class GUI:
                     current_V, target_V = 0, thresh*10
                     self.update_loop()
                 while abs(current_V - target_V) > thresh:
-                    current_V = self.MPOD.QueryVoltage(channels[max_idx])
+                    current_V = self.MPOD.GetVoltage(channels[max_idx])
                     target_V = self.MPOD.GetTargetVoltage(channels[max_idx])
-                    #manual thresholding. probably better way to do this with querying ramp status
+                    #manual thresholding. probably better way to do this with Geting ramp status
                     #waits until biggest change is completed
                     #TODO: TEST UPDATE LOOP!
                     # time.sleep(0.1)
@@ -433,8 +433,7 @@ class GUI:
                     except:
                         pass
                         
-        dpg.add_file_dialog(directory_selector = True, show = False, tag = "file_dialog_id", width = heights[0],
-        height=heights[0] // 2, callback = self.user_selected_filepath)
+        dpg.add_file_dialog(directory_selector = True, show = False, tag = "file_dialog_id", width = heights[0],height=heights[0] // 2, callback = self.user_selected_filepath)
         ########## CONTROLS WINDOW ###############
         with dpg.window(label = "Controls", height = heights[0], width = widths[0], pos = (widths[1], 0), tag = "controller"):
             with dpg.tab_bar(tag = "ControlsTabBar"):
@@ -672,5 +671,6 @@ class GUI:
         self.close()
         dpg.destroy_context()
 
-# g = GUI(take_real_data = False) 
-# g.start_app()
+if __name__ == '__main__':
+    g = GUI(take_real_data = False) 
+    g.start_app()

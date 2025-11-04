@@ -16,6 +16,8 @@ class MPOD:
     '''
 
     def __init__(self, IP = '169.254.107.70', mode = 0, MIBdir = "/usr/share/snmp/mibs"):
+        self.last_time = 0
+        self.initialized = 0
         self.IP = IP
         self.mibdir = MIBdir #or os.path.expanduser("~/.snmp/mibs")
         self.mode = mode#mode: 0, driver, 1, debug (not connected)
@@ -43,17 +45,18 @@ class MPOD:
                 self.precision = ''#try lower precision values for older SNMP protocols
                 if len(self.Send('get','sysMainSwitch.0'))<1:
                     self.WarnHandler('Crate is not connected or configured correctly')
-            if not self.QueryPowerCrate():
+            if not self.GetPowerCrate():
                 self.WarnHandler('Crate is off - powering on now, wait for system to respond')
                 self.SetPowerCrate(1)
                 time.sleep(1)
-                if self.QueryPowerCrate():#if power on was successful, wait for modules to respond
+                if self.GetPowerCrate():#if power on was successful, wait for modules to respond
                     while 'No Such Instance' in self.Send('walk','outputSwitch'):
                         pass#time.sleep(0.5)
                 else: 
                     self.WarnHandler('Crate did not turn on')
                    
         self.n_channels = len(self.GetAllNames())
+        self.initialized = 1
         ### FOR DEBUG ONLY: ###
         if mode: 
             d = {'i_limit':1.0123456789012, 'i_rate':2.1234567890123, 'i_actual':0.11234567890123, 'v_target':2000.1234567890123, 
@@ -112,9 +115,15 @@ class MPOD:
                 if self.debug_mode == 0:
                     self.last_cmd = cmd
                 else:
-                    self.last_cmd['All commands'].append(cmd_type + ': ' + original_cmd)
-                    self.last_cmd['All replies'].append(result_parsed)  
-                    self.last_cmd['command time'].append(time.monotonic()-self.start_time)          
+                    self.last_cmd['All commands']=(cmd_type + ': ' + original_cmd)
+                    self.last_cmd['All replies']=(result_parsed)  
+                    self.last_cmd['command time']=(time.monotonic()-self.start_time)    
+                    # print(self.last_time,time.monotonic()-self.start_time)
+                    if ((time.monotonic()-self.start_time)-self.last_time)  > 1:
+                        print(self.last_cmd)
+                    self.last_time = time.monotonic()-self.start_time
+                    # if 
+                        
                 
             except Exception as ex:# subprocess.CalledProcessError as err:
                 try: #reattempt
@@ -122,9 +131,9 @@ class MPOD:
 
                     result_parsed = self.Send(cmd_type, cmd.split(' ')[-1])
                     if self.debug_mode:
-                        self.last_cmd['All commands'].append(cmd)
-                        self.last_cmd['All replies'].append(result_parsed)  
-                        self.last_cmd['command time'].append(time.monotonic()-self.start_time) 
+                        self.last_cmd['All commands']=(cmd)
+                        self.last_cmd['All replies']=(result_parsed)  
+                        self.last_cmd['command time']=(time.monotonic()-self.start_time) 
                     self.WarnHandler(f"SNMP command succesfully retried. Command: {cmd})")
                 except Exception as ex: 
                     self.WarnHandler(f"SNMP command failed. Command: {cmd})")#, Error: {err.stderr}")
@@ -188,8 +197,8 @@ class MPOD:
     def WarnHandler(self,warning_text):
         self.warnings.append(warning_text)
         if self.debug_mode: 
-            self.last_cmd['error time'].append(time.monotonic()-self.start_time)
-            self.last_cmd['Errors'].append(warning_text)
+            self.last_cmd['error time']=(time.monotonic()-self.start_time)
+            self.last_cmd['Errors']=(warning_text)
         print(warning_text)
         #TODO: pass these to front panel 
 
@@ -219,7 +228,7 @@ class MPOD:
             self.gathered_command_type = ''
                
 
-    ###### MAIN FUNCTIONS: BASIC ONE CHANNEL GET/SET/QUERY (LIST FROM ISEG MANUAL TABLE 2)#######
+    ###### MAIN FUNCTIONS: BASIC ONE CHANNEL GET/SET (LIST FROM ISEG MANUAL TABLE 2)#######
     def SetTargetVoltage(self, channel, voltage):
         ''' 
         Channel Voltage Set Target ::: [V] ::: float
@@ -259,9 +268,9 @@ class MPOD:
             result = self.ParseReply(reply, 'float')
         return result*1000
     
-    def QueryVoltage(self, channel, mode = 'Sense'):
+    def GetVoltage(self, channel, mode = 'Sense'):
         ''' 
-        Channel Actual Voltage Query ::: [V] ::: float
+        Channel Actual Voltage Get ::: [V] ::: float
         Modes: 'Sense' or 'Terminal' 
         FOR HV MODULES, SENSE AND TERMINAL VALUES ARE IDENTICAL
         '''
@@ -274,8 +283,8 @@ class MPOD:
             result = self.ParseReply(reply, 'float')
         return result
         
-    def QueryCurrent(self, channel):
-        ''' Channel Actual Current Query ::: [mA] ::: float'''
+    def GetCurrent(self, channel):
+        ''' Channel Actual Current Get ::: [mA] ::: float'''
         if self.mode:
             # reply = 'WIENER-CRATE-MIB::outputMeasurementCurrent.u604 = Opaque: Float: 0.001592196703 A'
             result = self.mimic[str(channel)]['i_actual']
@@ -320,7 +329,7 @@ class MPOD:
         else:
             self.Send('set', f"outputSwitch.u{channel} i {power_state}")
         
-    def QueryPower(self, channel):
+    def GetPower(self, channel):
         # returns integer, parse as binary
         if self.mode:
             # reply = 'WIENER-CRATE-MIB::outputSwitch.u604 = INTEGER: off(0)'
@@ -407,7 +416,7 @@ class MPOD:
             result = self.ParseReply(reply,'integer')
         return result
         
-    ### GROUP FUNCTIONS: GET/QUERY ALL CHANNELS ####
+    ### GROUP FUNCTIONS: GET/Get ALL CHANNELS ####
     def GetAllTargetVoltages(self):
         #Output all target voltages
         if self.mode: 
@@ -426,21 +435,21 @@ class MPOD:
             result = self.ParseReply(reply, 'float array')
         return [r * 1000 for r in result]
     
-    def QueryAllVoltages(self, mode = 'Sense'):
+    def GetAllVoltages(self, mode = 'Sense'):
         ''' Output all actual voltages
         Modes: 'Sense' or 'Terminal' 
         FOR HV MODULES SENSE AND TERMINAL VALUES ARE IDENTICAL'''
         if self.mode: 
-            result = [self.QueryVoltage(ch,mode) for ch in self.mimic['crate']['channels']]
+            result = [self.GetVoltage(ch,mode) for ch in self.mimic['crate']['channels']]
         else: 
             reply = self.Send('walk', f'outputMeasurement{mode}Voltage')
             result = self.ParseReply(reply, 'float array')
         return result
 
-    def QueryAllCurrents(self):
+    def GetAllCurrents(self):
         # Output all actual currents ::: [mA] ::: list of floats
         if self.mode: 
-            result = [self.QueryCurrent(ch)/1000 for ch in self.mimic['crate']['channels']]
+            result = [self.GetCurrent(ch)/1000 for ch in self.mimic['crate']['channels']]
         else:
             reply = self.Send('walk', f'outputMeasurementCurrent')
             result = self.ParseReply(reply, 'float array')
@@ -506,13 +515,13 @@ class MPOD:
 
     def SetPowerCrate(self, power_state = None):
         if power_state is None:
-            power_state = int(not self.QueryPowerCrate())
+            power_state = int(not self.GetPowerCrate())
         if self.mode:
             self.mimic['crate']['pwr'] = power_state
         else:
             self.Send('set', f"sysMainSwitch.0 i {power_state}")
     
-    def QueryPowerCrate(self):
+    def GetPowerCrate(self):
         #returns integer, parse as binary
         if self.mode:
             # reply = 'WIENER-CRATE-MIB::sysMainSwitch.0 = INTEGER: ON(1)'
@@ -523,10 +532,10 @@ class MPOD:
         
         return int(result)
 
-    def QueryAllPowers(self):
+    def GetAllPowers(self):
         # desc ::: list of integers (parse as binary array)
         if self.mode: 
-            result = [self.QueryPower(ch) for ch in self.mimic['crate']['channels']]
+            result = [self.GetPower(ch) for ch in self.mimic['crate']['channels']]
         else: 
             reply = self.Send('walk', f"outputSwitch")
             result = self.ParseReply(reply, 'binary array')
@@ -595,24 +604,30 @@ class MPOD:
         '''Modes: 
         'crate','channel','module','module event'
         Module Events are static (vs 'module' -> flags that are transient)
-                
         '''
+        mode = mode.lower()
         if self.mode: 
             reply = 'WIENER-CRATE-MIB::outputStatus.u101 = BITS: 04 00 40 outputFailureMaxCurrent(5) outputLowCurrentRange(17)'
         else: 
             hex_length = 2 # default length for everything but channel
-            bit_length = 16
+            bit_length = hex_length*8
+            if 'get all' in mode:
+                to_get = mode.lstrip('get all ')
+                if to_get == 'channel':
+                    bit_length=24
+                return self.ParseStatus(['ff', 'ff', 'ff'],to_get,bit_length,quick)
+            
             if mode == 'crate':
                 reply = self.Send('get','sysStatus.0')
             elif mode == 'channel':
                 reply = self.Send('get', f'outputStatus.u{channel_or_module}')
                 hex_length = 3
-                bit_length = 24
-            elif mode == 'module':
-                self.WarnHandler('module status handling not set up - use "module event" instead')
+                bit_length = hex_length*8
+            elif mode == 'module status':
+                self.WarnHandler('module status handling not set up - use "module" instead')
                 reply = self.Send('get',f'outputStatus.ma{channel_or_module}')
-            elif mode == 'module event':
-                reply = self.Send('get',f'moduleEventStatus.ma{channel_or_module}')
+            elif mode == 'module':
+                reply = self.Send('get',f'moduleEventStatus.ma{channel_or_module}')          
             else:
                 self.WarnHandler(f"Mode '{mode}' is not a valid input to GetStatus")
 
@@ -627,19 +642,20 @@ class MPOD:
 
     def GetAllStatuses(self,mode,quick = False):
         hex_length = 2
-        bit_length = 16
+        bit_length = hex_length*8
         if mode == 'module':
             reply = self.Send('walk','moduleStatus')
         if mode =='channel':
             reply  = self.Send('walk','outputStatus')
             hex_length = 3
-            bit_length = 24
+            bit_length = hex_length*8
         parsed_reply = self.ParseReply(reply,'bits array')
         status=[]
         for p in parsed_reply: 
             while len(p)<hex_length:
                 p.append('00')
             status.append(self.ParseStatus(p,mode,bit_length,quick))
+            # [name,flag,desc,active_bits] = self.ParseStatus(p,mode,bit_length,quick)
         return status
 
     def TestConnection(self):
@@ -667,7 +683,9 @@ class MPOD:
             name = []
             flag = []
             desc = []
+            bits = []
             if mode == 'crate':
+                bits = [bit for bit in active_bits if bit in [0,1,2,3,4,5,6,8,9,10,11]]
                 for i in active_bits: 
                     match i: 
                         case 0:#bit0 = 'crate on flag' #ACTUALLY BIT 15!!! 
@@ -717,6 +735,7 @@ class MPOD:
                 #not implemented, ick! 
                 #Status behavior: sticky, i.e. indicates that the flag was triggered, must be cleared to remove
                 for i in active_bits: 
+                    bits = [bit for bit in active_bits if bit in [0,2,3,4,5,6,8,9,10,11,12,13,14,15]]
                     match i: 
                         case 0:#bit0 (actually bit 15)
                             name.append('ADJ')
@@ -748,7 +767,7 @@ class MPOD:
                             flag.append('Sum Error')
                             desc.append('A critical event occurred in at least one channel. The concerned channel status flags are: I LIMIT, V LIMIT, TRIP, INHIBIT, V BOUND, I BOUND.')
                         case 9:#bit9
-                            #TODO: Query just this bit for a lot of utility.. 
+                            #TODO: Get just this bit for a lot of utility.. 
                             #inverted flag
                             name.append('RAMP')
                             flag.append('Ramping')
@@ -778,13 +797,14 @@ class MPOD:
                             flag.append('Temperature High')
                             desc.append('The temperature of the module is too high.')
                         case 15:#bit15
-                            #TODO: Query just this bit for lots of behavior info
+                            #TODO: Get just this bit for lots of behavior info
                             name.append('KILL')
                             flag.append('Kill Enabled')
                             desc.append('The "Kill" option has been enabled for the module. If "Kill" is enabled, several channel status flags will lead to a shutdown of the channel. These status flags are TRIP, I LIMIT, V LIMIT, I BOUND, V BOUND, ARC.')
             elif mode == 'channel':
                 #NOTE: Channel statuses are different for LV and HV modules! this is for HV modules only
                 for i in active_bits: 
+                    bits = [bit for bit in active_bits if bit in [0,1,4,5,10,11,12,13,14,15,16,17,18,19]]
                     match i: 
                         case 0:#Bit 0 (actually bit 23 in conventional ordering)
                             name.append('ON')
@@ -842,11 +862,11 @@ class MPOD:
                             name.append('I LIMIT')
                             flag.append('Current Limit Exceeded')
                             desc.append('Set if the current exceeds the value defined for the hardware current limit (Imax potentiometer). If the "Kill" option has been enabled for the module, the channel will be shut down.')
-            return [name, flag, desc, active_bits[0:bit_length]] 
+            return [name, flag, desc, bits]#active_bits[0:bit_length]] 
            
-    def QueryChannel(self, channel):
+    def GetChannel(self, channel):
         r'''Get all channel info (Voltage, Current, On/Off Status)'''
-        result = [self.QueryVoltage(channel), self.QueryCurrent(channel), self.QueryPower(channel)]
+        result = [self.GetVoltage(channel), self.GetCurrent(channel), self.GetPower(channel)]
     
 #TODO: see if moduleRampSpeedVoltage is preferable to current ramping fx
     
