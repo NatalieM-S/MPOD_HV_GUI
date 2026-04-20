@@ -5,6 +5,8 @@ import platform
 import time
 import traceback
 import inspect
+import ast
+import textwrap
 
 # Written by Natalie Mujica-Schwahn, last updated: 10/4/25
 class MPOD:
@@ -34,6 +36,9 @@ class MPOD:
         self.gathered_commands = []
         self.gathered_command_type = ''
         self.last_cmd=''
+        self.command_dict = self._catalog_cmds()#List of all commands for translation into OIDs 
+
+        self.base = ".1.3.6.1.4.1.19947.1.3.2.1"
         if self.debug_mode == 1:
             self.start_time = time.monotonic()
             self.last_cmd={'All commands': [], 'All replies': [], 'Errors':[],'error time':[],'command time': []}
@@ -69,7 +74,41 @@ class MPOD:
         #######################
        
         ##example command : "snmpget -v 2c -Op .12 -m +WIENER-CRATE-MIB -c guru 169.254.107.70 outputPower.u0"
-    
+    def _catalog_cmds(self):
+        ''' 
+        Creates numeric OIDs from legible versions used here. 
+        These calls are much faster since it doesnt need to query the MIBs dir file each time
+        '''
+        commands={}
+        to_ignore = ['Send','SendMultiple','_catalog_cmds','TestConnection','__init__', 'GetAllNames','ParseReply']
+        for method, f in inspect.getmembers(self.__class__,predicate=inspect.isfunction):
+            tree=ast.parse(textwrap.dedent(inspect.getsource(f)))
+            entries=[]
+            
+            if method in to_ignore:
+                continue
+            for node in ast.walk(tree):
+                
+                if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and (node.func.attr=="Send"):
+                    cmd_type = node.args[0].value
+                    try:
+                        cmd  = "".join( str(v.value) if isinstance(v, ast.Constant) else "{" + ast.unparse(v.value) + "}" for v in node.args[1].values)
+                    except AttributeError:
+                        cmd=node.args[1].value
+
+                    cmd=cmd.replace("{mode}","Sense")
+                    args = cmd.split()[1:]
+                    
+                    cmd=cmd.split()[0]
+                    print(cmd)
+                    oid= self.Send('translate',cmd.split('.')[0])
+
+                    commands[method]={"cmd_type":cmd_type,"cmd":cmd,"args":args,"oid":oid}
+        return commands
+             
+             
+             
+             
     def Send(self,cmd_type = 'walk', cmd = ''):
         '''Base command struct and MPODCrate communication functions'''
         #result = subprocess.run([cmd],shell = True,capture_output = True)
@@ -103,6 +142,8 @@ class MPOD:
                 cmd = f"snmpset -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
             elif cmd_type == 'get':
                 cmd = f"snmpget -v 2c {self.precision}-m +WIENER-CRATE-MIB -c guru {self.IP} " + cmd
+            elif cmd_type == 'translate':
+                cmd = f'snmptranslate -On WIENER-CRATE-MIB::{cmd}'
             else:
                 self.WarnHandler(cmd_type + ' is invalid command type')
             try:
@@ -121,9 +162,7 @@ class MPOD:
                     # print(self.last_time,time.monotonic()-self.start_time)
                     if ((time.monotonic()-self.start_time)-self.last_time)  > 1:
                         print(self.last_cmd)
-                    self.last_time = time.monotonic()-self.start_time
-                    # if 
-                        
+                    self.last_time = time.monotonic()-self.start_time                       
                 
             except Exception as ex:# subprocess.CalledProcessError as err:
                 try: #reattempt
@@ -339,7 +378,7 @@ class MPOD:
             result = self.ParseReply(reply, 'binary')
         return result
     
-    def SetVoltageRate(self, channel, rate, direction =  'Rise'):
+    def SetVoltageRate(self, channel, rate):#, direction =  'Rise'):
         ''' 
         Channel Voltage Set Rise Rate ::: [V/s] ::: float)
         direction: 'Rise' or 'Fall' 
@@ -355,9 +394,10 @@ class MPOD:
         if self.mode: 
             self.mimic[str(channel)]['v_rate'] = rate
         else: 
-            self.Send('set', f"outputVoltage{direction}Rate.u{channel} F {rate}")
+            # self.Send('set', f"outputVoltage{direction}Rate.u{channel} F {rate}")
+            self.Send('set', f"outputVoltageRiseRate.u{channel} F {rate}")
     
-    def GetVoltageRate(self, channel, direction =  'Rise'):
+    def GetVoltageRate(self, channel):#, direction =  'Rise'):
         ''' 
         Channel Voltage Get Rise Rate ::: [V/s] ::: float)
         directions: 'Rise' and 'Fall' 
@@ -367,11 +407,12 @@ class MPOD:
             # reply = 'WIENER-CRATE-MIB::outputVoltageRiseRate.u604 = Opaque: Float: 0.000000000000 V/s'
             result = self.mimic[str(channel)]['v_rate']
         else: 
-            reply = self.Send('get', f"outputVoltage{direction}Rate.u{channel}")
+            # reply = self.Send('get', f"outputVoltage{direction}Rate.u{channel}")
+            reply = self.Send('get', f"outputVoltageRiseRate.u{channel}")
             result = self.ParseReply(reply, 'float')
         return result
 
-    def SetCurrentRate(self, channel, rate, direction =  'Rise'):
+    def SetCurrentRate(self, channel, rate):#, direction =  'Rise'):
         ''' 
         Channel Current Set Rise Rate ::: [mA/s] ::: float)
         directions: 'Rise' and 'Fall' 
@@ -381,9 +422,10 @@ class MPOD:
         if self.mode: 
             self.mimic[str(channel)]['i_rate'] = rate
         else: 
-            self.Send('set', f"outputCurrent{direction}Rate.u{channel} F {rate}")
+            # self.Send('set', f"outputCurrent{direction}Rate.u{channel} F {rate}")
+            self.Send('set', f"outputCurrentRiseRate.u{channel} F {rate}")
     
-    def GetCurrentRate(self, channel, direction =  'Rise'):
+    def GetCurrentRate(self, channel):#, direction =  'Rise'):
         ''' 
         Channel Current Get Rise Rate ::: [mA/s] ::: float)
         directions: 'Rise' and 'Fall' 
@@ -395,7 +437,9 @@ class MPOD:
             # reply = 'WIENER-CRATE-MIB::outputCurrentRiseRate.u604 = Opaque: Float: 0.093592196703 A/s'
             result = self.mimic[str(channel)]['i_rate']
         else: 
-            reply = self.Send('get', f"outputCurrent{direction}Rate.u{channel}")
+            # reply = self.Send('get', f"outputCurrent{direction}Rate.u{channel}")
+            reply = self.Send('get', f"outputCurrentRiseRate.u{channel}")
+
             result = self.ParseReply(reply, 'float')
         return result*1000
     ### ADDITIONAL SINGLE CHANNEL FUNCTIONS #####
@@ -443,7 +487,10 @@ class MPOD:
             result = [self.GetVoltage(ch,mode) for ch in self.mimic['crate']['channels']]
         else: 
             reply = self.Send('walk', f'outputMeasurement{mode}Voltage')
+            # reply = self.Send('get', [f"{self.base}.5.{i}" for i in range(1, 9)])
+            
             result = self.ParseReply(reply, 'float array')
+            print(result)
         return result
 
     def GetAllCurrents(self):
@@ -473,20 +520,21 @@ class MPOD:
             result = self.ParseReply(reply, 'float array')
         return [r * 1000 for r in result]
     
-    def GetAllVoltageRates(self, direction =  'Rise'):
+    def GetAllVoltageRates(self):#, direction =  'Rise'):
         if self.mode: 
-            result = [self.GetVoltageRate(ch,direction) for ch in self.mimic['crate']['channels']]
+            result = [self.GetVoltageRate(ch,'Rise') for ch in self.mimic['crate']['channels']]
         else:
-            reply = self.Send('walk', f"outputVoltage{direction}Rate")
+            # reply = self.Send('walk', f"outputVoltage{direction}Rate")
+            reply = self.Send('walk', f"outputVoltageRiseRate")
             result = self.ParseReply(reply, 'float array')
         return result       
     
-    def GetAllCurrentRates(self, direction =  'Rise'):
+    def GetAllCurrentRates(self):#, direction =  'Rise'):
         # desc ::: [mA] ::: list of floats
         if self.mode: 
             result = [self.GetCurrentRate(ch)/1000 for ch in self.mimic['crate']['channels']]
         else: 
-            reply = self.Send('walk', f"outputCurrent{direction}Rate")
+            reply = self.Send('walk', f"outputCurrentRiseRate")
             result = self.ParseReply(reply, 'float array')
         return [r * 1000 for r in result]
 
@@ -600,6 +648,18 @@ class MPOD:
     #note: in percentage of outputConfigMaxCurrent (but this doesnt agree with channel ramp rate... )
     #TODO: can set all at once? probably not... 
     ##### WORKS IN PROGRESS####    
+    def _crate_status(self):
+        reply = self.Send('get','sysStatus.0')
+        return reply
+    def _channel_status(self,channel):
+        reply = self.Send('get', f'outputStatus.u{channel}')
+        return reply
+    def _module_status(self,module):
+        reply = self.Send('get',f'outputStatus.ma{module}')
+        return reply
+    def _module_event_status(self,module):
+        reply = self.Send('get',f'moduleEventStatus.ma{module}')
+        return reply
     def GetStatus(self, channel_or_module = None, mode = 'Crate',quick = False):
         '''Modes: 
         'crate','channel','module','module event'
@@ -618,16 +678,16 @@ class MPOD:
                 return self.ParseStatus(['ff', 'ff', 'ff'],to_get,bit_length,quick)
             
             if mode == 'crate':
-                reply = self.Send('get','sysStatus.0')
+                reply = self._crate_status()# self.Send('get','sysStatus.0')
             elif mode == 'channel':
-                reply = self.Send('get', f'outputStatus.u{channel_or_module}')
+                reply =  self._channel_status(channel_or_module)
                 hex_length = 3
                 bit_length = hex_length*8
             elif mode == 'module status':
                 self.WarnHandler('module status handling not set up - use "module" instead')
-                reply = self.Send('get',f'outputStatus.ma{channel_or_module}')
+                reply = self._module_status(channel_or_module)
             elif mode == 'module':
-                reply = self.Send('get',f'moduleEventStatus.ma{channel_or_module}')          
+                reply = self._module_event_status(channel_or_module)          
             else:
                 self.WarnHandler(f"Mode '{mode}' is not a valid input to GetStatus")
 
@@ -640,13 +700,19 @@ class MPOD:
             [name,flag,desc,active_bits] = self.ParseStatus(parsed_reply,mode,bit_length,quick)  
             return [name,flag,desc,active_bits]
 
+    def _all_module_status(self):
+        reply = self.Send('walk','moduleStatus')
+        return reply
+    def _all_channel_status(self):
+        reply  = self.Send('walk','outputStatus')
+        return reply
     def GetAllStatuses(self,mode,quick = False):
         hex_length = 2
         bit_length = hex_length*8
         if mode == 'module':
-            reply = self.Send('walk','moduleStatus')
+            reply = self._all_module_status()
         if mode =='channel':
-            reply  = self.Send('walk','outputStatus')
+            reply  = self._all_channel_status()
             hex_length = 3
             bit_length = hex_length*8
         parsed_reply = self.ParseReply(reply,'bits array')

@@ -148,7 +148,9 @@ class CustomFx(DecorateAllMethods):
         if mode == 'Voltage Divider':
             ''' Acts similar to how a voltage divider would. Pass in value for drift, value for GEMs and desired ratios for GEMs
             Example input: [2000,1500,1,0.8,0.5,0.3,0.2,0.1]
-            '''
+            Original voltage divider fraction was [1, 0.975, 0.855, 0.637, 0.528, 0.310, 0.218, 0]
+
+             '''
             drift_voltage = set_values[0]# Example: 2000 V to drift
             GEM_max_voltage = set_values[1]# Example: 1500 V divided between the GEMs
             #The example ratio of 1,0.8,0.5,0.3,0.2,0.1 returns 1500, 1200, 750, 450, 300, 150 V
@@ -296,6 +298,9 @@ class CustomFx(DecorateAllMethods):
         for m in self.modules:#manual states that channel events should be cleared before module events
             self.MPOD.ClearModule(m)
         self.MPOD.SendMultiple('end')
+        
+    def RampOff(self):
+        self.RampAll()
 
     def RampAll(self, channels_to_ramp = None, ramp_vals = None):
         ''' 
@@ -332,6 +337,7 @@ class CustomFx(DecorateAllMethods):
                 self.MPOD.SetPower(ch, 1)
 
     def GetAllValues(self, channels = None, modules = None):
+        #Note: this is really, slow, faster using bulk reads of raw OIDs
         pwr_crate = self.MPOD.GetPowerCrate()
         if pwr_crate: 
             if channels is None:
